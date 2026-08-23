@@ -1,7 +1,7 @@
-# ─────────────────────────────────────────────
-#  cogs/info.py — Comandos de Información v3
-#  UserInfo, ServerInfo, Help, Ping, Whitelist
-# ─────────────────────────────────────────────
+"""
+cogs/info.py — Comandos de Información v6
+Owner, ServerAudit, WhoIs, Help, Ping, Whitelist, Blacklist
+"""
 import discord
 from discord.ext import commands
 from discord import app_commands
@@ -9,404 +9,251 @@ import platform
 import psutil
 from datetime import datetime
 
-from config import BOT_NAME, BOT_VERSION, BOT_FOOTER, SECURITY_ROLES
-from utils.embeds import (
-    create_embed, userinfo_embed, serverinfo_embed, security_panel
+from config import (
+    OWNER_ID, OWNER_NAME, OWNER_DISCORD, SECURITY_ROLES,
+    BOT_NAME, BOT_VERSION, BOT_FOOTER, COLOR_RED, COLOR_GREEN, COLOR_BLUE, COLOR_YELLOW
 )
+from utils.embeds import create_embed, owner_info, server_audit, whois_embed, security_status
 from database import db
 
 
-class InfoCog(commands.Cog):
-    """Comandos de información del bot"""
+class Info(commands.Cog):
+    """Comandos de información"""
 
     def __init__(self, bot):
         self.bot = bot
-        self.start_time = datetime.utcnow()
 
-    @app_commands.command(name="help", description="Mostrar todos los comandos disponibles")
-    async def help_command(self, interaction: discord.Interaction):
-        """Muestra el panel de comandos"""
-        embed = security_panel()
+    # ═══════════════════════════════════════════
+    #  OWNER / CREADOR
+    # ═══════════════════════════════════════════
+
+    @app_commands.command(name="owner", description="Información del creador del bot")
+    async def owner_cmd(self, interaction: discord.Interaction):
+        embed = owner_info()
         await interaction.response.send_message(embed=embed)
 
-    @app_commands.command(name="ping", description="Ver latencia del bot")
-    async def ping(self, interaction: discord.Interaction):
-        """Muestra la latencia del bot"""
-        latency = round(self.bot.latency * 1000)
-        if latency < 100:
-            color = 0x00FF00
-            status = "Excelente"
-        elif latency < 200:
-            color = 0xFFFF00
-            status = "Buena"
-        else:
-            color = 0xFF0000
-            status = "Mala"
-
-        embed = create_embed(
-            "🏓 Pong!",
-            f"Latencia: **{latency}ms**",
-            color=color,
-            fields=[
-                ("⏱️ Latencia", f"{latency}ms", True),
-                ("📊 Estado", status, True),
-                ("🤖 Bot", self.bot.user.name, True),
-            ]
-        )
+    @app_commands.command(name="creator", description="Alias de /owner")
+    async def creator_cmd(self, interaction: discord.Interaction):
+        embed = owner_info()
         await interaction.response.send_message(embed=embed)
 
-    @app_commands.command(name="botinfo", description="Información del bot")
-    async def bot_info(self, interaction: discord.Interaction):
-        """Muestra información detallada del bot"""
-        uptime = datetime.utcnow() - self.start_time
-        hours, remainder = divmod(int(uptime.total_seconds()), 3600)
-        minutes, seconds = divmod(remainder, 60)
-        uptime_str = f"{hours}h {minutes}m {seconds}s"
+    # ═══════════════════════════════════════════
+    #  SERVER AUDIT
+    # ═══════════════════════════════════════════
 
-        process = psutil.Process()
-        mem_usage = process.memory_info().rss / 1024 / 1024
+    @app_commands.command(name="serveraudit", description="Auditoría completa del servidor")
+    async def serveraudit_cmd(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+        guild = interaction.guild
 
-        embed = create_embed(
-            f"🤖 {BOT_NAME}",
-            f"Bot de seguridad avanzado para Discord",
-            color=0x000000,
-            fields=[
-                ("📋 Versión", BOT_VERSION, True),
-                ("⏱️ Uptime", uptime_str, True),
-                ("🏓 Ping", f"{round(self.bot.latency * 1000)}ms", True),
-                ("🌐 Servidores", str(len(self.bot.guilds)), True),
-                ("👥 Usuarios", str(len(self.bot.users)), True),
-                ("💻 Python", platform.python_version(), True),
-                ("📦 discord.py", discord.__version__, True),
-                ("💾 Memoria", f"{mem_usage:.1f} MB", True),
-                ("🖥️ Sistema", platform.system(), True),
-                ("👑 Desarrollador", BOT_FOOTER, True),
-            ]
-        )
-        await interaction.response.send_message(embed=embed)
+        # Recopilar info
+        member_count = guild.member_count
+        online = sum(1 for m in guild.members if m.status != discord.Status.offline and not m.bot)
+        channels = len(guild.channels)
+        roles = len(guild.roles)
+        emojis = len(guild.emojis)
+        boosts = guild.premium_subscription_count or 0
+        boost_level = guild.premium_tier
 
-    @app_commands.command(name="userinfo", description="Información de un usuario")
-    @app_commands.describe(user="Usuario a consultar")
-    async def user_info(self, interaction: discord.Interaction, user: discord.Member = None):
-        """Muestra información detallada de un usuario"""
-        if user is None:
-            user = interaction.user
+        embed = server_audit(guild, member_count, online, channels, roles, emojis, boost_level)
 
-        embed = userinfo_embed(user)
+        # Info adicional
+        inv_count = 0
+        try:
+            invites = await guild.invites()
+            inv_count = len(invites)
+        except discord.Forbidden:
+            pass
 
+        embed.add_field(name="🔗 Invitaciones", value=str(inv_count), inline=True)
+        embed.add_field(name="🚀 Boosts", value=f"{boosts} (Nivel {boost_level})", inline=True)
+        embed.add_field(name="🔒 Verificación", value=str(guild.verification_level).title(), inline=True)
+
+        # Canary traps / whitelist count
+        bl = await db.get_blacklist(guild.id)
+        wl = await db.get_whitelist(guild.id)
+        embed.add_field(name="黑名单 Blacklist", value=str(len(bl)), inline=True)
+        embed.add_field(name="🛡️ Whitelist", value=str(len(wl)), inline=True)
+
+        await interaction.followup.send(embed=embed)
+
+    # ═══════════════════════════════════════════
+    #  WHOIS
+    # ═══════════════════════════════════════════
+
+    @app_commands.command(name="whois", description="Información detallada de un usuario")
+    @app_commands.describe(user="Usuario a investigar")
+    async def whois_cmd(self, interaction: discord.Interaction, user: discord.Member):
         warn_count = await db.get_warn_count(interaction.guild.id, user.id)
         is_bl = await db.is_blacklisted(interaction.guild.id, user.id)
         is_wl = await db.is_whitelisted(interaction.guild.id, user.id)
-
-        if warn_count > 0:
-            embed.add_field(name="⚠️ Warns", value=str(warn_count), inline=True)
-        if is_bl:
-            embed.add_field(name="黑名单 Blacklist", value="SÍ", inline=True)
-        if is_wl:
-            embed.add_field(name="✅ Whitelist (Inmune)", value="SÍ", inline=True)
-
-        key_perms = []
-        if user.guild_permissions.administrator:
-            key_perms.append("👑 Administrador")
-        if user.guild_permissions.ban_members:
-            key_perms.append("🔨 Banear")
-        if user.guild_permissions.kick_members:
-            key_perms.append("👢 Expulsar")
-        if user.guild_permissions.manage_messages:
-            key_perms.append("📝 Gestionar mensajes")
-        if user.guild_permissions.manage_channels:
-            key_perms.append("📁 Gestionar canales")
-
-        if key_perms:
-            embed.add_field(name="🔑 Permisos clave", value="\n".join(key_perms), inline=False)
-
+        embed = whois_embed(user, warn_count, is_bl, is_wl)
         await interaction.response.send_message(embed=embed)
 
-    @app_commands.command(name="serverinfo", description="Información del servidor")
-    async def server_info(self, interaction: discord.Interaction):
-        """Muestra información detallada del servidor"""
-        embed = serverinfo_embed(interaction.guild)
+    # ═══════════════════════════════════════════
+    #  PING
+    # ═══════════════════════════════════════════
+
+    @app_commands.command(name="ping", description="Ver latencia del bot")
+    async def ping_cmd(self, interaction: discord.Interaction):
+        latency = round(self.bot.latency * 1000)
+        embed = create_embed("🏓 PONG", f"Latencia: **{latency}ms**", COLOR_GREEN,
+            [("🤖 Bot", f"{self.bot.user.name}", True),
+             ("⏱️ WebSocket", f"{latency}ms", True),
+             ("📊 Servidores", str(len(self.bot.guilds)), True)])
         await interaction.response.send_message(embed=embed)
 
-    @app_commands.command(name="members", description="Estadísticas de miembros")
-    async def member_stats(self, interaction: discord.Interaction):
-        """Muestra estadísticas de miembros del servidor"""
-        guild = interaction.guild
-        total = guild.member_count
-        humans = sum(1 for m in guild.members if not m.bot)
-        bots = sum(1 for m in guild.members if m.bot)
-        online = sum(1 for m in guild.members if m.status == discord.Status.online)
+    # ═══════════════════════════════════════════
+    #  BOT INFO
+    # ═══════════════════════════════════════════
 
-        role_counts = {}
-        for member in guild.members:
-            for role in member.roles:
-                if role != guild.default_role:
-                    role_counts[role.name] = role_counts.get(role.name, 0) + 1
-
-        top_roles = sorted(role_counts.items(), key=lambda x: x[1], reverse=True)[:5]
-        top_roles_text = "\n".join([f"**{role}**: {count}" for role, count in top_roles])
-
+    @app_commands.command(name="botinfo", description="Información del bot")
+    async def botinfo_cmd(self, interaction: discord.Interaction):
         embed = create_embed(
-            f"👥 Estadísticas de {guild.name}",
-            "Información detallada de miembros",
-            color=0x000000,
+            f"🤖 {BOT_NAME}",
+            f"Bot de seguridad avanzado para Discord",
+            COLOR_BLUE,
             fields=[
-                ("📊 Total", str(total), True),
-                ("👤 Humanos", str(humans), True),
-                ("🤖 Bots", str(bots), True),
-                ("🟢 En línea", str(online), True),
-                ("🎭 Roles más usados", top_roles_text if top_roles_text else "N/A", False),
-            ]
-        )
-        await interaction.response.send_message(embed=embed)
-
-    @app_commands.command(name="roleinfo", description="Información de un rol")
-    @app_commands.describe(role="Rol a consultar")
-    async def role_info(self, interaction: discord.Interaction, role: discord.Role):
-        """Muestra información detallada de un rol"""
-        member_count = sum(1 for m in interaction.guild.members if role in m.roles)
-
-        perms = []
-        if role.permissions.administrator:
-            perms.append("👑 Administrador")
-        if role.permissions.ban_members:
-            perms.append("🔨 Banear miembros")
-        if role.permissions.kick_members:
-            perms.append("👢 Expulsar miembros")
-        if role.permissions.manage_messages:
-            perms.append("📝 Gestionar mensajes")
-        if role.permissions.manage_channels:
-            perms.append("📁 Gestionar canales")
-
-        embed = create_embed(
-            f"🎭 Información de {role.name}",
-            f"Detalles del rol **{role.name}**",
-            color=role.color if role.color != discord.Color.default() else 0x000000,
-            fields=[
-                ("📋 ID", f"`{role.id}`", True),
-                ("🎨 Color", str(role.color), True),
-                ("👥 Miembros", str(member_count), True),
-                ("📍 Posición", str(role.position), True),
-                ("🔑 Permisos", "\n".join(perms) if perms else "Sin permisos especiales", False),
+                ("📋 Versión", BOT_VERSION, True),
+                ("📊 Servidores", str(len(self.bot.guilds)), True),
+                ("👥 Usuarios", str(sum(g.member_count for g in self.bot.guilds)), True),
+                ("⏱️ Latencia", f"{round(self.bot.latency * 1000)}ms", True),
+                ("🐍 Python", platform.python_version(), True),
+                ("📚 discord.py", discord.__version__, True),
+                ("💾 RAM", f"{psutil.virtual_memory().percent}%", True),
+                ("🖥️ Sistema", platform.system(), True),
+                ("👑 Creador", OWNER_NAME, True),
             ]
         )
         await interaction.response.send_message(embed=embed)
 
     # ═══════════════════════════════════════════
-    #  COMANDOS DE ADMIN
+    #  HELP
     # ═══════════════════════════════════════════
 
-    @app_commands.command(name="config", description="Ver configuración actual")
-    async def view_config(self, interaction: discord.Interaction):
-        """Muestra la configuración actual del bot"""
-        settings = await db.get_guild_settings(interaction.guild.id)
-        if not settings:
-            await db.update_guild_settings(interaction.guild.id)
-            settings = await db.get_guild_settings(interaction.guild.id)
-
+    @app_commands.command(name="help", description="Panel de todos los comandos")
+    async def help_cmd(self, interaction: discord.Interaction):
         embed = create_embed(
-            f"⚙️ Configuración de {interaction.guild.name}",
-            "Configuración actual del bot de seguridad",
-            color=0x000000,
+            f"📋 COMANDOS DE {BOT_NAME.upper()}",
+            "Todos los comandos disponibles",
+            COLOR_BLUE,
             fields=[
-                ("🚨 Anti-Raid", "✅" if settings.get('anti_raid') else "❌", True),
-                ("🚫 Anti-Spam", "✅" if settings.get('anti_spam') else "❌", True),
-                ("🎣 Anti-Phishing", "✅" if settings.get('anti_phishing') else "❌", True),
-                ("📝 Auto-Mod", "✅" if settings.get('auto_mod') else "❌", True),
-                ("🔐 Verificación", "✅" if settings.get('verification') else "❌", True),
-                ("📊 Logs", "✅" if settings.get('logs_enabled') else "❌", True),
-                ("📍 Canal logs", f"<#{settings.get('log_channel_id')}>" if settings.get('log_channel_id') else "❌ No", True),
-                ("📍 Canal verificación", f"<#{settings.get('verification_channel_id')}>" if settings.get('verification_channel_id') else "❌ No", True),
-                ("🎭 Rol verificado", f"<@&{settings.get('verified_role_id')}>" if settings.get('verified_role_id') else "❌ No", True),
-                ("🚨 Umbral raid", str(settings.get('raid_threshold', 5)), True),
-                ("🚫 Umbral spam", str(settings.get('spam_threshold', 5)), True),
-                ("🔇 Duración mute", f"{settings.get('mute_duration', 300)}s", True),
-                ("⚠️ Warns → Kick", str(settings.get('warn_kick_threshold', 3)), True),
-                ("🔨 Warns → Ban", str(settings.get('warn_ban_threshold', 5)), True),
+                ("🛡️ Seguridad", "• `/security` — Estado de seguridad\n• `/raid` — Config anti-raid\n• `/antispam` — Config anti-spam", False),
+                ("🔨 Moderación", "• `/warn` — Advertir usuario\n• `/warns` — Ver advertencias\n• `/clearwarns` — Limpiar warns\n• `/ban` — Banear usuario\n• `/unban` — Desbanear\n• `/kick` — Expulsar\n• `/mute` — Silenciar\n• `/unmute` — Quitar silencio", False),
+                ("📊 Información", "• `/whois` — Info de usuario\n• `/serveraudit` — Auditoría del servidor\n• `/botinfo` — Info del bot\n• `/ping` — Latencia", False),
+                ("👑 Creador", "• `/owner` — Info del creador", False),
+                ("⚙️ Config", "• `/setlog` — Canal de logs\n• `/blacklist` — Blacklist\n• `/whitelist` — Whitelist", False),
+                ("📋 Protecciones Activas", "🚨 Anti-Raid\n🚫 Anti-Spam\n⚡ Anti-Flood\n🔗 Anti-Links\n🎣 Anti-Phishing\n🚫 Anti-NSFW\n📢 Anti-Menciones\n🤖 Anti-Bots\n🔠 Auto-Mod\n🔍 Anti-Alt Accounts", False),
             ]
         )
         await interaction.response.send_message(embed=embed)
 
-    @app_commands.command(name="toggle", description="Activar/desactivar sistema de seguridad")
-    @app_commands.choices(system=[
-        app_commands.Choice(name="Anti-Raid", value="anti_raid"),
-        app_commands.Choice(name="Anti-Spam", value="anti_spam"),
-        app_commands.Choice(name="Anti-Phishing", value="anti_phishing"),
-        app_commands.Choice(name="Auto-Mod", value="auto_mod"),
-        app_commands.Choice(name="Logs", value="logs_enabled"),
-    ])
-    async def toggle_system(self, interaction: discord.Interaction, system: str):
-        """Activa o desactiva un sistema de seguridad"""
-        if not await self._check_mod_role(interaction):
-            return
-
-        settings = await db.get_guild_settings(interaction.guild.id)
-        current = settings.get(system, True) if settings else True
-        new_value = 0 if current else 1
-
-        await db.update_guild_settings(interaction.guild.id, **{system: new_value})
-
-        status = "✅ Activado" if new_value else "❌ Desactivado"
-        system_names = {
-            'anti_raid': 'Anti-Raid', 'anti_spam': 'Anti-Spam',
-            'anti_phishing': 'Anti-Phishing', 'auto_mod': 'Auto-Mod',
-            'logs_enabled': 'Logs',
-        }
-
-        embed = create_embed(
-            f"⚙️ {system_names.get(system, system)} {status}",
-            f"El sistema ha sido {'activado' if new_value else 'desactivado'} por {interaction.user.mention}",
-            color=0x00FF00 if new_value else 0xFF0000
-        )
-        await interaction.response.send_message(embed=embed)
-
     # ═══════════════════════════════════════════
-    #  COMANDO: OWNER / CREATOR
+    #  BLACKLIST
     # ═══════════════════════════════════════════
 
-    @app_commands.command(name="owner", description="👑 Información del creador del bot")
-    async def owner_info(self, interaction: discord.Interaction):
-        """Muestra información del dueño/creador del bot"""
-        from config import (
-            OWNER_NAME, OWNER_ID, OWNER_STATUS, OWNER_BADGES,
-            OWNER_DISCORD, OWNER_GITHUB, OWNER_BIO, OWNER_AVATAR,
-            BOT_NAME, BOT_VERSION
-        )
-
-        # Intentar obtener el miembro real del servidor
-        owner_member = None
+    @app_commands.command(name="blacklist", description="Agregar usuario a la blacklist (auto-ban)")
+    @app_commands.describe(user="Usuario", reason="Razón")
+    async def blacklist_cmd(self, interaction: discord.Interaction, user: discord.Member, reason: str = "Sin razón"):
+        if not self._check_role(interaction): return
+        await db.add_blacklist(interaction.guild.id, user.id, reason)
         try:
-            owner_member = interaction.guild.get_member(int(OWNER_ID)) if OWNER_ID.isdigit() else None
-        except (ValueError, TypeError):
+            await user.ban(reason=f"Blacklist: {reason}")
+        except discord.Forbidden:
             pass
+        await self._dm(user, "黑名单 BLACKLIST",
+            f"Fuiste agregado a la blacklist de **{interaction.guild.name}**",
+            COLOR_RED, [("📝 Razón", reason, False)])
+        await interaction.response.send_message(embed=create_embed("✅ BLACKLIST",
+            f"**{user.mention}** agregado a la blacklist y baneado", COLOR_RED,
+            [("👤 Usuario", user.mention, True), ("📝 Razón", reason, True)]))
 
-        # Si no se encuentra por ID, buscar por nombre
-        if not owner_member:
-            for member in interaction.guild.members:
-                if member.name == OWNER_NAME or (member.nick and member.nick == OWNER_NAME):
-                    owner_member = member
-                    break
+    @app_commands.command(name="unblacklist", description="Remover usuario de la blacklist")
+    @app_commands.describe(user_id="ID del usuario")
+    async def unblacklist_cmd(self, interaction: discord.Interaction, user_id: str):
+        if not self._check_role(interaction): return
+        await db.remove_blacklist(interaction.guild.id, int(user_id))
+        await interaction.response.send_message(embed=create_embed("✅ BLACKLIST REMOVIDA",
+            f"Usuario `{user_id}` removido de la blacklist", COLOR_GREEN))
 
-        # Crear embed principal
-        embed = create_embed(
-            f"👑 CREADOR DE {BOT_NAME.upper()}",
-            f"Conoce al creador y desarrollador de **{BOT_NAME}**",
-            color=0x000000,
-            image=OWNER_AVATAR
-        )
+    # ═══════════════════════════════════════════
+    #  WHITELIST
+    # ═══════════════════════════════════════════
 
-        embed.add_field(
-            name="👤 Información Personal",
-            value=(
-                f"**Nombre:** {OWNER_NAME}\n"
-                f"**Discord:** `{OWNER_DISCORD}`\n"
-                f"**ID:** `{OWNER_ID}`\n"
-                f"**Estado:** {OWNER_STATUS}\n"
-            ),
-            inline=True
-        )
+    @app_commands.command(name="whitelist", description="Agregar usuario a la whitelist (inmune a todo)")
+    @app_commands.describe(user="Usuario")
+    async def whitelist_cmd(self, interaction: discord.Interaction, user: discord.Member):
+        if not self._check_role(interaction): return
+        await db.add_whitelist(interaction.guild.id, user.id)
+        await interaction.response.send_message(embed=create_embed("✅ WHITELIST",
+            f"**{user.mention}** ahora es **INMUNE** a todo el auto-mod", COLOR_GREEN,
+            [("👤 Usuario", user.mention, True),
+             ("🛡️ Estado", "INMUNE A TODO", True),
+             ("📝 Incluye", "Anti-spam, anti-links, auto-mod", False)]))
 
-        embed.add_field(
-            name="📊 Badges",
-            value="\n".join([f"{b}" for b in OWNER_BADGES]),
-            inline=True
-        )
+    @app_commands.command(name="unwhitelist", description="Remover usuario de la whitelist")
+    @app_commands.describe(user_id="ID del usuario")
+    async def unwhitelist_cmd(self, interaction: discord.Interaction, user_id: str):
+        if not self._check_role(interaction): return
+        await db.remove_whitelist(interaction.guild.id, int(user_id))
+        await interaction.response.send_message(embed=create_embed("✅ WHITELIST REMOVIDA",
+            f"Usuario `{user_id}` ya no es inmune", COLOR_YELLOW))
 
-        embed.add_field(
-            name="📝 Biografía",
-            value=OWNER_BIO,
-            inline=False
-        )
+    @app_commands.command(name="wl", description="Ver whitelist completa")
+    async def wl_cmd(self, interaction: discord.Interaction):
+        wl = await db.get_whitelist(interaction.guild.id)
+        if not wl:
+            return await interaction.response.send_message(embed=create_embed("✅ Whitelist", "Vacía.", COLOR_GREEN))
+        lines = []
+        for entry in wl:
+            member = interaction.guild.get_member(entry[2])
+            lines.append(f"• {member.mention if member else f'`{entry[2]}`'}")
+        await interaction.response.send_message(embed=create_embed("✅ Whitelist",
+            "\n".join(lines[:20]), COLOR_GREEN,
+            [("👥 Total", str(len(wl)), True)]))
 
-        embed.add_field(
-            name="🔗 Links",
-            value=(
-                f"**GitHub:** {OWNER_GITHUB}\n"
-                f"**Discord:** {OWNER_DISCORD}\n"
-            ),
-            inline=True
-        )
+    # ═══════════════════════════════════════════
+    #  LOGS
+    # ═══════════════════════════════════════════
 
-        embed.add_field(
-            name="🤖 Sobre el Bot",
-            value=(
-                f"**Bot:** {BOT_NAME}\n"
-                f"**Versión:** {BOT_VERSION}\n"
-                f"**Creado por:** {OWNER_NAME}\n"
-                f"**Propósito:** Proteger servidores de Discord con seguridad avanzada\n"
-            ),
-            inline=True
-        )
+    @app_commands.command(name="logs", description="Ver logs de seguridad recientes")
+    @app_commands.describe(event_type="Tipo de evento (opcional)")
+    async def logs_cmd(self, interaction: discord.Interaction, event_type: str = None):
+        if not self._check_role(interaction): return
+        logs = await db.get_logs(interaction.guild.id, limit=15, event_type=event_type)
+        if not logs:
+            return await interaction.response.send_message(embed=create_embed("📋 Logs", "No hay logs recientes.", COLOR_GREEN))
 
-        embed.add_field(
-            name="🏆 Logros",
-            value=(
-                "• Creador del bot de seguridad más avanzado\n"
-                "• Sistema Anti-Nuke, Anti-Raid, Anti-Phishing\n"
-                "• Protecciones nucleares imparables\n"
-                "• Moderación con DMs automáticos\n"
-                "• Auditoría completa del servidor\n"
-            ),
-            inline=False
-        )
+        lines = []
+        for log in logs:
+            ts = f"<t:{int(datetime.fromisoformat(log[6]).timestamp())}:R>" if log[6] else "N/A"
+            user = f"<@{log[3]}>" if log[3] else "Auto"
+            lines.append(f"**{log[2]}** por {user} — {ts}")
 
-        # Si el owner está en el servidor, mostrar info adicional
-        if owner_member:
-            embed.add_field(
-                name="📍 En este Servidor",
-                value=(
-                    f"**Miembro:** {owner_member.mention}\n"
-                    f"**Rol más alto:** {owner_member.top_role.mention}\n"
-                    f"**Se unió:** <t:{int(owner_member.joined_at.timestamp())}:R>\n" if owner_member.joined_at else ""
-                ),
-                inline=True
-            )
-
-        await interaction.response.send_message(embed=embed)
-
-    @app_commands.command(name="creator", description="👑 Alternativa: Información del creador")
-    async def creator_info(self, interaction: discord.Interaction):
-        """Comando alternativo para ver info del creador"""
-        await self.owner_info(interaction)
-
-    @app_commands.command(name="creditos", description="🏆 Créditos del bot")
-    async def credits(self, interaction: discord.Interaction):
-        """Muestra los créditos y contribuidores del bot"""
-        from config import OWNER_NAME, BOT_NAME, BOT_VERSION
-
-        embed = create_embed(
-            f"🏆 CRÉDITOS DE {BOT_NAME.upper()}",
-            "Personas que hicieron posible este bot",
-            color=0x000000,
-            fields=[
-                ("👑 Creador & Desarrollador", f"**{OWNER_NAME}** — Diseño, código y mantenimiento", False),
-                ("🛡️ Seguridad", f"**{OWNER_NAME}** — Todos los sistemas de seguridad", False),
-                ("🎨 Diseño", f"**{OWNER_NAME}** — Embeds y estilo visual", False),
-                ("📊 Auditoría", f"**{OWNER_NAME}** — Sistema de auditoría completa", False),
-                ("⚡ Features", f"**{OWNER_NAME}** — Anti-Nuke, Lockdown, Nuclear Protection", False),
-                ("🤖 Bot", f"**{BOT_NAME}** v{BOT_VERSION}", True),
-                ("📅 Año", "2026", True),
-            ]
-        )
-        await interaction.response.send_message(embed=embed)
+        await interaction.response.send_message(embed=create_embed("📋 Logs de Seguridad",
+            "\n".join(lines), COLOR_BLUE,
+            [("📊 Total", str(len(logs)), True)]))
 
     # ═══════════════════════════════════════════
     #  UTILIDADES
     # ═══════════════════════════════════════════
 
-    async def _check_mod_role(self, interaction):
-        """Verifica si el usuario tiene rol de moderador"""
-        has_role = any(role.name in SECURITY_ROLES for role in interaction.user.roles)
-        if not has_role:
-            embed = create_embed(
-                "❌ Sin permisos",
-                "Necesitas un rol de moderador para usar este comando.",
-                color=0xFF0000
-            )
-            await interaction.response.send_message(embed=embed, ephemeral=True)
-            return False
-        return True
+    def _check_role(self, interaction):
+        if any(r.name in SECURITY_ROLES for r in interaction.user.roles):
+            return True
+        import asyncio
+        asyncio.get_event_loop().create_task(
+            interaction.response.send_message(
+                embed=create_embed("❌ Sin permisos", "Necesitas un rol de moderador.", COLOR_RED),
+                ephemeral=True))
+        return False
+
+    async def _dm(self, user, title, description, color, fields=None):
+        try:
+            await user.send(embed=create_embed(title, description, color, fields))
+        except discord.Forbidden:
+            pass
 
 
 async def setup(bot):
-    await bot.add_cog(InfoCog(bot))
+    await bot.add_cog(Info(bot))
