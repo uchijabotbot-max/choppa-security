@@ -27,41 +27,48 @@ OWNER_BIO = "Creador de Choppa Security — Bot de seguridad más avanzado de Di
 SECURITY_ROLES = ["Admin", "Moderator", "Security", "Owner", "Administrador", "Moderador"]
 
 # ── Anti-Raid ─────────────────────────────────────
-RAID_JOIN_THRESHOLD = 5       # 5 joins en ventana → raid
-RAID_TIME_WINDOW = 10         # 10 segundos
+RAID_JOIN_THRESHOLD = 3       # 3 joins en ventana → raid (antes 5)
+RAID_TIME_WINDOW = 8          # 8 segundos (antes 10)
 
 # ── Anti-Spam / Flood ─────────────────────────────
-SPAM_THRESHOLD = 5            # 5 msgs en ventana → mute
-SPAM_TIME_WINDOW = 5          # 5 segundos
-FLOOD_THRESHOLD = 4           # 4 msgs en 3s → warn
-FLOOD_TIME_WINDOW = 3
-MUTE_DEFAULT_DURATION = 600   # 10 minutos
+SPAM_THRESHOLD = 3            # 3 msgs en ventana → mute (antes 5)
+SPAM_TIME_WINDOW = 4          # 4 segundos (antes 5)
+FLOOD_THRESHOLD = 3           # 3 msgs en 2s → warn (antes 4 en 3s)
+FLOOD_TIME_WINDOW = 2
+MUTE_DEFAULT_DURATION = 1800  # 30 minutos (antes 10)
 
 # ── Anti-Menciones ────────────────────────────────
-MAX_MENTIONS = 4              # 4+ menciones → eliminar + DM
+MAX_MENTIONS = 3              # 3+ menciones → eliminar + DM (antes 4)
 
 # ── Auto-Mod ──────────────────────────────────────
-MAX_CAPS_PERCENT = 70
-MIN_CAPS_LENGTH = 10
-MAX_EMOJI_COUNT = 10
+MAX_CAPS_PERCENT = 50         # 50% mayusculas → delete (antes 70)
+MIN_CAPS_LENGTH = 8           # Minimo 8 chars (antes 10)
+MAX_EMOJI_COUNT = 7           # 7+ emojis → delete (antes 10)
 BLOCK_ALL_LINKS = True
 
-# ── Warns ─────────────────────────────────────────
-WARN_MUTE_THRESHOLD = 2
-WARN_KICK_THRESHOLD = 3
-WARN_BAN_THRESHOLD = 5
+# ── Warns (mas agresivo) ─────────────────────────
+WARN_MUTE_THRESHOLD = 1       # 1 warn → mute (antes 2)
+WARN_KICK_THRESHOLD = 2       # 2 warns → kick (antes 3)
+WARN_BAN_THRESHOLD = 3        # 3 warns → ban (antes 5)
 
-# ── NSFW ──────────────────────────────────────────
+# ── NSFW (lista expandida) ────────────────────────
 NSFW_KEYWORDS = [
     "nsfw", "porn", "xxx", "nude", "naked", "hentai",
     "onlyfans", "rule34", "ecchi", "lewd",
+    "fap", "cum", "boobs", "dick", "pussy",
+    "sexcam", "camgirl", "camboy",
+    "adult", "erotic", "fetish",
 ]
 
-# ── Phishing Domains ──────────────────────────────
+# ── Phishing Domains (lista expandida) ──────────────
 PHISHING_DOMAINS = [
-    "discord.gift", "discοrd.gift", "discrl.com", "discorde.com",
+    "discord.gift", "disc0rd.gift", "discrl.com", "discorde.com",
     "steamcommunlty.com", "dlscord.gift", "discorcl.com",
     "gift-nitro.com", "free-nitro.com", "free-nitros.com",
+    "discordgifts.com", "discocrd.com", "discorb.com",
+    "steam-giveaway.com", "nitro-giveaway.com",
+    "paypal-free.com", "crypto-gift.com",
+    "roblox-free.com", "minecraft-free.com",
 ]
 
 # ── Palabras Prohibidas ──────────────────────────
@@ -103,7 +110,7 @@ BANNED_WORDS_BAN = [
 ]
 
 # Numero de palabras prohibidas para ban automatico
-BAD_WORD_BAN_THRESHOLD = 3   # 3 palabras malas = ban
+BAD_WORD_BAN_THRESHOLD = 2   # 2 palabras malas = ban (antes 3)
 
 # ── Nombres Sospechosos ──────────────────────────
 SUSPICIOUS_NAMES = [
@@ -112,13 +119,13 @@ SUSPICIOUS_NAMES = [
 ]
 
 # ── Anti-Nuke ─────────────────────────────────────
-NUKE_CHANNEL_DELETE = 3       # 3 canales eliminados en 10s
-NUKE_CHANNEL_CREATE = 5       # 5 canales creados en 10s
-NUKE_ROLE_DELETE = 3          # 3 roles eliminados en 10s
-NUKE_TIME_WINDOW = 10
+NUKE_CHANNEL_DELETE = 2       # 2 canales eliminados en 8s (antes 3 en 10s)
+NUKE_CHANNEL_CREATE = 3       # 3 canales creados en 8s (antes 5 en 10s)
+NUKE_ROLE_DELETE = 2          # 2 roles eliminados en 8s (antes 3 en 10s)
+NUKE_TIME_WINDOW = 8
 
 # ── Cuentas Nuevas ────────────────────────────────
-ALT_ACCOUNT_DAYS = 7
+ALT_ACCOUNT_DAYS = 14         # 14 dias (antes 7) - mas estricto
 
 # ── Anti-Invite (bloquear links de invitacion) ──
 ANTI_INVITE_ENABLED = True
@@ -129,22 +136,22 @@ INVITE_PATTERNS = [
 
 # ── Anti-Mass Role Delete ──────────────────────
 ANTI_ROLE_DELETE_ENABLED = True
-ROLE_DELETE_THRESHOLD = 3     # 3 roles eliminados en 10s = nuke
-ROLE_DELETE_TIME_WINDOW = 10
+ROLE_DELETE_THRESHOLD = 2     # 2 roles eliminados en 8s = nuke (antes 3 en 10s)
+ROLE_DELETE_TIME_WINDOW = 8
 
 # ── Anti-Mass Kick ─────────────────────────────
 ANTI_MASS_KICK_ENABLED = True
-MASS_KICK_THRESHOLD = 3      # 3 kicks en 10s = sospechoso
-MASS_KICK_TIME_WINDOW = 10
+MASS_KICK_THRESHOLD = 2      # 2 kicks en 8s = ban (antes 3 en 10s)
+MASS_KICK_TIME_WINDOW = 8
 
 # ── Anti-Mass Ban ──────────────────────────────
 ANTI_MASS_BAN_ENABLED = True
-MASS_BAN_THRESHOLD = 2       # 2 bans en 10s = sospechoso
-MASS_BAN_TIME_WINDOW = 10
+MASS_BAN_THRESHOLD = 1       # 1 ban en 8s = sospechoso (antes 2 en 10s)
+MASS_BAN_TIME_WINDOW = 8
 
 # ── Backup Automatico ──────────────────────────
 BACKUP_ENABLED = True
-BACKUP_INTERVAL_HOURS = 6    # Cada 6 horas
+BACKUP_INTERVAL_HOURS = 2    # Cada 2 horas (antes 6) - mas frecuente
 
 # ── Logging ───────────────────────────────────────
 LOG_CHANNEL_NAME = "security-logs"
