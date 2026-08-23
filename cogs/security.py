@@ -18,6 +18,10 @@ from config import (
     PHISHING_DOMAINS, SECURITY_ROLES,
     BLOCK_ALL_LINKS, NSFW_KEYWORDS, FLOOD_THRESHOLD, FLOOD_TIME_WINDOW,
     SUSPICIOUS_NAMES, ALT_ACCOUNT_DAYS, BOT_NAME,
+    ANTI_INVITE_ENABLED, INVITE_PATTERNS,
+    ANTI_ROLE_DELETE_ENABLED, ROLE_DELETE_THRESHOLD, ROLE_DELETE_TIME_WINDOW,
+    ANTI_MASS_KICK_ENABLED, MASS_KICK_THRESHOLD, MASS_KICK_TIME_WINDOW,
+    ANTI_MASS_BAN_ENABLED, MASS_BAN_THRESHOLD, MASS_BAN_TIME_WINDOW,
     COLOR_RED, COLOR_GREEN, COLOR_YELLOW, COLOR_BLUE, COLOR_ORANGE
 )
 from utils.embeds import (
@@ -77,10 +81,6 @@ class Security(commands.Cog):
                 COLOR_ORANGE)
 
     @commands.Cog.listener()
-    async def on_member_remove(self, member):
-        await self._log(member.guild, "member_leave", member.id)
-
-    @commands.Cog.listener()
     async def on_message(self, message):
         if message.author.bot or not message.guild:
             return
@@ -106,6 +106,11 @@ class Security(commands.Cog):
 
         if BLOCK_ALL_LINKS:
             if await self._check_links(message):
+                return
+
+        # Anti-Invite
+        if ANTI_INVITE_ENABLED:
+            if await self._check_invite(message):
                 return
 
         if settings.get("anti_phishing", True):
@@ -239,6 +244,138 @@ class Security(commands.Cog):
             await self._alert_log(guild, "😀 EMOJIS AGREGADOS",
                 "Se agregaron **" + str(count_added) + "** emojis nuevos",
                 COLOR_YELLOW)
+
+    # ==========================================
+    #  ANTI-INVITE (bloquear invitaciones)
+    # ==========================================
+
+    @commands.Cog.listener()
+    async def on_guild_role_delete(self, role):
+        if not ANTI_ROLE_DELETE_ENABLED:
+            return
+        guild = role.guild
+        now = time.time()
+        # Track role deletes
+        if not hasattr(self, '_role_delete_times'):
+            self._role_delete_times = defaultdict(list)
+        self._role_delete_times[guild.id].append(now)
+        self._role_delete_times[guild.id] = [
+            t for t in self._role_delete_times[guild.id]
+            if now - t < ROLE_DELETE_TIME_WINDOW
+        ]
+        if len(self._role_delete_times[guild.id]) >= ROLE_DELETE_THRESHOLD:
+            # Nuke detectado - buscar al responsable
+            try:
+                async for entry in guild.audit_logs(limit=10, action=discord.AuditLogAction.role_delete):
+                    if not entry.user.bot:
+                        user = entry.user
+                        try:
+                            dm = create_embed("🔨 BAN - MASS ROLE DELETE",
+                                "Fuiste baneado de **" + guild.name + "** por eliminar multiples roles",
+                                COLOR_RED,
+                                [("📝 Razon", "Eliminacion masiva de roles", False),
+                                 ("🔢 Roles eliminados", str(len(self._role_delete_times[guild.id])), True)])
+                            await user.send(embed=dm)
+                        except discord.Forbidden:
+                            pass
+                        try:
+                            await user.ban(reason="Mass role delete: " + str(len(self._role_delete_times[guild.id])) + " roles")
+                        except discord.Forbidden:
+                            pass
+                        await self._alert_log(guild, "🔨 BAN - MASS ROLE DELETE",
+                            user.mention + " fue baneado por eliminar multiples roles",
+                            COLOR_RED)
+                        await self._log(guild, "mass_role_delete_ban", user.id,
+                                        details=str(len(self._role_delete_times[guild.id])) + " roles eliminados")
+                        break
+            except discord.Forbidden:
+                pass
+            self._role_delete_times[guild.id] = []
+
+    @commands.Cog.listener()
+    async def on_member_remove(self, member):
+        if not member.guild:
+            return
+        guild = member.guild
+
+        # Log member leave
+        await self._log(guild, "member_leave", member.id)
+
+        # Anti-Mass Kick
+        if ANTI_MASS_KICK_ENABLED:
+            now = time.time()
+            if not hasattr(self, '_kick_times'):
+                self._kick_times = defaultdict(list)
+            self._kick_times[guild.id].append(now)
+            self._kick_times[guild.id] = [
+                t for t in self._kick_times[guild.id]
+                if now - t < MASS_KICK_TIME_WINDOW
+            ]
+            if len(self._kick_times[guild.id]) >= MASS_KICK_THRESHOLD:
+                try:
+                    async for entry in guild.audit_logs(limit=10, action=discord.AuditLogAction.kick):
+                        if not entry.user.bot:
+                            user = entry.user
+                            try:
+                                dm = create_embed("🔨 BAN - MASS KICK",
+                                    "Fuiste baneado de **" + guild.name + "** por expulsar multiples usuarios",
+                                    COLOR_RED,
+                                    [("📝 Razon", "Expulsion masiva", False),
+                                     ("🔢 Usuarios expulsados", str(len(self._kick_times[guild.id])), True)])
+                                await user.send(embed=dm)
+                            except discord.Forbidden:
+                                pass
+                            try:
+                                await user.ban(reason="Mass kick: " + str(len(self._kick_times[guild.id])) + " kicks")
+                            except discord.Forbidden:
+                                pass
+                            await self._alert_log(guild, "🔨 BAN - MASS KICK",
+                                user.mention + " fue baneado por expulsar multiples usuarios",
+                                COLOR_RED)
+                            await self._log(guild, "mass_kick_ban", user.id,
+                                            details=str(len(self._kick_times[guild.id])) + " kicks")
+                            break
+                except discord.Forbidden:
+                    pass
+                self._kick_times[guild.id] = []
+
+        # Anti-Mass Ban
+        if ANTI_MASS_BAN_ENABLED:
+            now = time.time()
+            if not hasattr(self, '_ban_times'):
+                self._ban_times = defaultdict(list)
+            self._ban_times[guild.id].append(now)
+            self._ban_times[guild.id] = [
+                t for t in self._ban_times[guild.id]
+                if now - t < MASS_BAN_TIME_WINDOW
+            ]
+            if len(self._ban_times[guild.id]) >= MASS_BAN_THRESHOLD:
+                try:
+                    async for entry in guild.audit_logs(limit=10, action=discord.AuditLogAction.ban):
+                        if not entry.user.bot:
+                            user = entry.user
+                            try:
+                                dm = create_embed("🔨 BAN - MASS BAN",
+                                    "Fuiste baneado de **" + guild.name + "** por banear multiples usuarios",
+                                    COLOR_RED,
+                                    [("📝 Razon", "baneo masivo", False),
+                                     ("🔢 Usuarios baneados", str(len(self._ban_times[guild.id])), True)])
+                                await user.send(embed=dm)
+                            except discord.Forbidden:
+                                pass
+                            try:
+                                await user.ban(reason="Mass ban: " + str(len(self._ban_times[guild.id])) + " bans")
+                            except discord.Forbidden:
+                                pass
+                            await self._alert_log(guild, "🔨 BAN - MASS BAN",
+                                user.mention + " fue baneado por banear multiples usuarios",
+                                COLOR_RED)
+                            await self._log(guild, "mass_ban_ban", user.id,
+                                            details=str(len(self._ban_times[guild.id])) + " bans")
+                            break
+                except discord.Forbidden:
+                    pass
+                self._ban_times[guild.id] = []
 
     # ==========================================
     #  MONITOREO DE ADMINS
@@ -509,6 +646,34 @@ class Security(commands.Cog):
              ("📝 Tu mensaje", message.content[:500], False)])
         await self._log(message.guild, "link_blocked", message.author.id, details=urls[0][:100])
         return True
+
+    async def _check_invite(self, message):
+        content = message.content.lower()
+        for pattern in INVITE_PATTERNS:
+            if pattern in content:
+                try:
+                    await message.delete()
+                except discord.Forbidden:
+                    return False
+
+                await db.add_warn(message.guild.id, message.author.id, self.bot.user.id, "Invite link: " + pattern)
+                warn_count = await db.get_warn_count(message.guild.id, message.author.id)
+
+                await message.channel.send(embed=create_embed("🔗 INVITE BLOQUEADO",
+                    message.author.mention + " intento enviar un link de invitacion",
+                    COLOR_RED,
+                    [("🔗 Patron", pattern, True),
+                     ("⚠️ Warns", str(warn_count) + "/5", True)]), delete_after=10)
+                await self._dm(message.author, "🔗 INVITE BLOQUEADO",
+                    "Tu mensaje fue eliminado en **" + message.guild.name + "** por contener un link de invitacion.",
+                    COLOR_RED,
+                    [("📍 Canal", "#" + message.channel.name, True),
+                     ("🔗 Patron", pattern, False),
+                     ("⚠️ Warns", str(warn_count) + "/5", True),
+                     ("📝 Tu mensaje", message.content[:500], False)])
+                await self._log(message.guild, "invite_blocked", message.author.id, details="Patron: " + pattern)
+                return True
+        return False
 
     async def _check_phishing(self, message):
         content = message.content.lower()

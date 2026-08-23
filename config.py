@@ -120,5 +120,31 @@ NUKE_TIME_WINDOW = 10
 # ── Cuentas Nuevas ────────────────────────────────
 ALT_ACCOUNT_DAYS = 7
 
+# ── Anti-Invite (bloquear links de invitacion) ──
+ANTI_INVITE_ENABLED = True
+INVITE_PATTERNS = [
+    "discord.gg/", "discord.com/invite/",
+    "dsc.gg/", "invite.gg/",
+]
+
+# ── Anti-Mass Role Delete ──────────────────────
+ANTI_ROLE_DELETE_ENABLED = True
+ROLE_DELETE_THRESHOLD = 3     # 3 roles eliminados en 10s = nuke
+ROLE_DELETE_TIME_WINDOW = 10
+
+# ── Anti-Mass Kick ─────────────────────────────
+ANTI_MASS_KICK_ENABLED = True
+MASS_KICK_THRESHOLD = 3      # 3 kicks en 10s = sospechoso
+MASS_KICK_TIME_WINDOW = 10
+
+# ── Anti-Mass Ban ──────────────────────────────
+ANTI_MASS_BAN_ENABLED = True
+MASS_BAN_THRESHOLD = 2       # 2 bans en 10s = sospechoso
+MASS_BAN_TIME_WINDOW = 10
+
+# ── Backup Automatico ──────────────────────────
+BACKUP_ENABLED = True
+BACKUP_INTERVAL_HOURS = 6    # Cada 6 horas
+
 # ── Logging ───────────────────────────────────────
 LOG_CHANNEL_NAME = "security-logs"

@@ -54,6 +54,7 @@ class ChoppaSecurity(commands.Bot):
             "cogs.security",
             "cogs.moderation",
             "cogs.info",
+            "cogs.backup",
         ]
 
         loaded = 0
