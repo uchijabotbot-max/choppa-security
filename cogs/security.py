@@ -24,7 +24,8 @@ from config import (
     MAX_MENTION_COUNT, MENTION_ACTION,
     AGGRESSIVE_MODE, AGGRESSIVE_BAN_ON_REPEAT, AGGRESSIVE_DM_ON_EVERY_ACTION,
     AGGRESSIVE_LOG_EVERYTHING, AGGRESSIVE_MAX_WARNINGS_BAN,
-    AGGRESSIVE_AUTO_PURGE_LINKS, AGGRESSIVE_ANTI_ALT_ACCOUNTS, ALT_ACCOUNT_DAYS
+    AGGRESSIVE_AUTO_PURGE_LINKS, AGGRESSIVE_ANTI_ALT_ACCOUNTS, ALT_ACCOUNT_DAYS,
+    BOT_NAME
 )
 from utils.embeds import (
     raid_detected, spam_detected, phishing_detected,
@@ -976,7 +977,7 @@ class SecurityCog(commands.Cog):
                     ("👤 Mencionados\n(primeros 10)", "\n".join(mentioned) if mentioned else "N/A", False),
                     ("⚠️ Total warns", f"{warn_count}/5", True),
                     ("📋 Razón", f"Mencionaste a {mention_count} personas/menciones en un solo mensaje", False),
-                    ("🕐 Hora", f"<t:{int(now)}:F>", True),
+                    ("🕐 Hora", f"<t:{int(datetime.utcnow().timestamp())}:F>", True),
                     ("🛡️ Bot", f"**{BOT_NAME}** — Anti-Mención Activo", False),
                 ]
             )
