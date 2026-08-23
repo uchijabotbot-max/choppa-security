@@ -235,6 +235,80 @@ class Info(commands.Cog):
             [("📊 Total", str(len(logs)), True)]))
 
     # ═══════════════════════════════════════════
+    #  ANTI-EXTENSIÓN / APLICACIONES
+    # ═══════════════════════════════════════════
+
+    @app_commands.command(name="extensions", description="Ver todas las integraciones/apps del servidor")
+    async def extensions_cmd(self, interaction: discord.Interaction):
+        if not self._check_role(interaction): return
+        await interaction.response.defer()
+        guild = interaction.guild
+
+        fields = []
+
+        # Bots
+        bots = [m for m in guild.members if m.bot and m != self.bot.user]
+        bot_list = "\n".join([f"• {b.mention} (`{b.id}`)" for b in bots[:15]]) or "Ninguno"
+        fields.append(("🤖 Bots", f"Total: **{len(bots)}**\n{bot_list}", False))
+
+        # Webhooks
+        webhook_count = 0
+        webhook_info = []
+        for ch in guild.text_channels:
+            try:
+                whs = await ch.webhooks()
+                webhook_count += len(whs)
+                for wh in whs[:3]:
+                    webhook_info.append(f"• #{ch.name}: `{wh.name}`")
+            except discord.Forbidden:
+                pass
+        fields.append(("🔗 Webhooks", f"Total: **{webhook_count}**\n" + "\n".join(webhook_info[:10]) or "Ninguno", False))
+
+        # Integraciones (slash commands de otros bots)
+        try:
+            integrations = await guild.integrations()
+            int_list = []
+            for i in integrations[:10]:
+                type_str = "App" if hasattr(i, 'application') else "Integration"
+                int_list.append(f"• **{i.name}** ({type_str})")
+            fields.append(("📦 Integraciones", f"Total: **{len(integrations)}**\n" + "\n".join(int_list) or "Ninguno", False))
+        except discord.Forbidden:
+            fields.append(("📦 Integraciones", "Sin permisos para ver", False))
+
+        # Emojis y Stickers
+        emoji_count = len(guild.emojis)
+        sticker_count = len(guild.stickers) if hasattr(guild, 'stickers') else 0
+        fields.append(("😀 Emojis", str(emoji_count), True))
+        fields.append(("🏷️ Stickers", str(sticker_count), True))
+
+        # Roles
+        roles = [r for r in guild.roles if r.name != '@everyone' and r != guild.default_role]
+        dangerous = []
+        for r in roles:
+            perms = [p for p, v in r.permissions if v and p in ['administrator', 'ban_members', 'kick_members', 'manage_guild', 'manage_channels', 'manage_roles', 'manage_webhooks']]
+            if perms:
+                dangerous.append(f"⚠️ {r.name}: `{', '.join(perms)}`")
+
+        fields.append(("🎭 Roles Totales", str(len(roles)), True))
+        if dangerous:
+            fields.append(("🚨 Roles con Permisos Peligrosos", "\n".join(dangerous[:10]), False))
+
+        # Invites
+        try:
+            invites = await guild.invites()
+            fields.append(("🔗 Invitaciones", str(len(invites)), True))
+        except discord.Forbidden:
+            fields.append(("🔗 Invitaciones", "Sin permisos", True))
+
+        embed = create_embed(
+            "🔌 EXTENSIONES / APLICACIONES",
+            f"Todas las integraciones de **{guild.name}**",
+            COLOR_BLUE,
+            fields=fields
+        )
+        await interaction.followup.send(embed=embed)
+
+    # ═══════════════════════════════════════════
     #  UTILIDADES
     # ═══════════════════════════════════════════
 
