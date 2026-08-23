@@ -101,6 +101,56 @@ class ChoppaSecurity(commands.Bot):
             )
         )
 
+        # Activar TODAS las protecciones automaticamente
+        from database.db import ensure_settings
+        await ensure_settings(guild.id)
+
+        # Buscar canal para enviar bienvenida
+        channel = None
+        for ch in guild.text_channels:
+            if ch.name in ["general", "chat", "texto", "welcome", "bienvenida"]:
+                channel = ch
+                break
+        if not channel:
+            channel = guild.system_channel
+        if not channel:
+            for ch in guild.text_channels:
+                if ch.permissions_for(guild.me).send_messages:
+                    channel = ch
+                    break
+
+        if channel:
+            from utils.embeds import create_embed
+            embed = create_embed(
+                "🛡️ Choppa Security Activado",
+                "**Todas las protecciones estan activas automaticamente**",
+                0x00FF00,
+                fields=[
+                    ("Protecciones Activas", "\n".join([
+                        "✅ Anti-Raid (auto-ban)",
+                        "✅ Anti-Spam (auto-mute)",
+                        "✅ Anti-Flood (auto-mute)",
+                        "✅ Anti-Links (auto-delete)",
+                        "✅ Anti-Phishing (auto-ban)",
+                        "✅ Anti-NSFW (auto-ban)",
+                        "✅ Anti-Menciones (auto-delete)",
+                        "✅ Anti-Bots (auto-ban)",
+                        "✅ Auto-Mod (palabras, caps, emojis)",
+                        "✅ Anti-Alt Accounts (alerta)",
+                        "✅ Anti-Webhook (alerta)",
+                        "✅ Anti-Roles Peligrosos (auto-delete)",
+                        "✅ Auto-Ban Admin (borra canal)",
+                        "✅ Auto-Ban Admin (modifica permisos)",
+                    ]), False),
+                    ("Comandos", "`/whitelist @user` - Inmune a todo\n`/blacklist @user` - Auto-ban\n`/security` - Estado\n`/help` - Todos los comandos", False),
+                    ("Owner", "<@1331303237315461163>", True),
+                ]
+            )
+            try:
+                await channel.send(embed=embed)
+            except discord.Forbidden:
+                pass
+
     async def on_guild_remove(self, guild):
         logger.info(f"📤 Salí de: {guild.name}")
 
