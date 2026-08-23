@@ -140,7 +140,7 @@ class Info(commands.Cog):
             fields=[
                 ("🛡️ Seguridad", "• `/security` — Estado de seguridad\n• `/raid` — Config anti-raid\n• `/antispam` — Config anti-spam", False),
                 ("🔨 Moderación", "• `/warn` — Advertir usuario\n• `/warns` — Ver advertencias\n• `/clearwarns` — Limpiar warns\n• `/ban` — Banear usuario\n• `/unban` — Desbanear\n• `/kick` — Expulsar\n• `/mute` — Silenciar\n• `/unmute` — Quitar silencio", False),
-                ("📊 Información", "• `/whois` — Info de usuario\n• `/serveraudit` — Auditoría del servidor\n• `/extensions` — Ver apps/bots/webhooks\n• `/botinfo` — Info del bot\n• `/ping` — Latencia", False),
+                ("📊 Información", "• `/whois` — Info de usuario\n• `/serveraudit` — Auditoría del servidor\n• `/extensions` — Ver apps/bots/webhooks\n• `/dashboard` — Dashboard en tiempo real\n• `/stats` — Estadísticas del bot\n• `/botinfo` — Info del bot\n• `/ping` — Latencia", False),
                 ("👑 Creador", "• `/owner` — Info del creador", False),
                 ("⚙️ Config", "• `/setlog` — Canal de logs\n• `/blacklist` — Blacklist (auto-ban)\n• `/whitelist` — Whitelist (inmune a todo)\n• `/wl` — Ver whitelist\n• `/unwhitelist` — Remover de whitelist\n• `/backup` — Backup del servidor\n• `/backups` — Ver backups", False),
                 ("🛡️ Protecciones Activas (20+)", "\n".join([
