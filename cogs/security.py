@@ -251,20 +251,31 @@ class Security(commands.Cog):
             async for entry in guild.audit_logs(limit=5, action=discord.AuditLogAction.channel_delete):
                 if entry.target.id == channel.id and not entry.user.bot:
                     ch_name = channel.name
-                    await self._alert_log(guild, "⚠️ CANAL ELIMINADO",
-                        entry.user.mention + " elimino el canal **" + ch_name + "**\nID: " + str(channel.id),
-                        COLOR_RED)
-                    await self._log(guild, "admin_channel_delete", entry.user.id,
-                                    details="Canal eliminado: " + ch_name)
+                    user = entry.user
+
+                    # BAN INMEDIATO al admin que borra un canal
                     try:
-                        dm = create_embed("⚠️ ACCION MONITOREADA",
-                            "Eliminaste el canal **" + ch_name + "** en **" + guild.name + "**",
+                        dm = create_embed("🔨 BAN - CANAL ELIMINADO",
+                            "Fuiste baneado de **" + guild.name + "** por eliminar el canal **" + ch_name + "**",
                             COLOR_RED,
-                            [("📝 Canal", str(channel.id), True),
-                             ("🕐 Hora", "<t:" + str(int(datetime.utcnow().timestamp())) + ":F>", True)])
-                        await entry.user.send(embed=dm)
+                            [("📍 Canal eliminado", ch_name, True),
+                             ("📋 ID del canal", str(channel.id), True),
+                             ("🕐 Hora", "<t:" + str(int(datetime.utcnow().timestamp())) + ":F>", True),
+                             ("📋 Razon", "Eliminar canales no esta permitido", False)])
+                        await user.send(embed=dm)
                     except discord.Forbidden:
                         pass
+
+                    try:
+                        await user.ban(reason="Elimino el canal: " + ch_name)
+                    except discord.Forbidden:
+                        pass
+
+                    await self._alert_log(guild, "🔨 ADMIN BANEADO - CANAL ELIMINADO",
+                        user.mention + " fue **BANEADO** por eliminar el canal **" + ch_name + "**",
+                        COLOR_RED)
+                    await self._log(guild, "admin_ban_channel_delete", user.id,
+                                    details="Canal eliminado: " + ch_name)
                     return
         except discord.Forbidden:
             pass
@@ -284,17 +295,46 @@ class Security(commands.Cog):
             async for entry in guild.audit_logs(limit=5, action=discord.AuditLogAction.channel_update):
                 if entry.target.id == after.id and not entry.user.bot:
                     changes_str = "\n".join(changes)
-                    await self._alert_log(guild, "⚠️ CANAL EDITADO",
-                        entry.user.mention + " edito **" + after.name + "**\n" + changes_str,
-                        COLOR_YELLOW)
-                    try:
-                        dm = create_embed("✏️ CANAL EDITADO",
-                            "Editaste **" + after.name + "** en **" + guild.name + "**",
-                            COLOR_YELLOW,
-                            [("📝 Cambios", changes_str, False)])
-                        await entry.user.send(embed=dm)
-                    except discord.Forbidden:
-                        pass
+                    user = entry.user
+
+                    # Si se modificaron permisos = BAN
+                    perm_change = any("permisos" in c.lower() or "permisos" in c.lower() for c in changes)
+                    name_change = any("nombre" in c.lower() for c in changes)
+
+                    if perm_change:
+                        # BAN por modificar permisos de canal
+                        try:
+                            dm = create_embed("🔨 BAN - PERMISOS MODIFICADOS",
+                                "Fuiste baneado de **" + guild.name + "** por modificar permisos del canal **" + after.name + "**",
+                                COLOR_RED,
+                                [("📍 Canal", after.name, True),
+                                 ("📝 Cambios", changes_str, False),
+                                 ("📋 Razon", "Modificar permisos no esta permitido", False)])
+                            await user.send(embed=dm)
+                        except discord.Forbidden:
+                            pass
+                        try:
+                            await user.ban(reason="Modifico permisos del canal: " + after.name)
+                        except discord.Forbidden:
+                            pass
+                        await self._alert_log(guild, "🔨 ADMIN BANEADO - PERMISOS",
+                            user.mention + " fue **BANEADO** por modificar permisos de **" + after.name + "**",
+                            COLOR_RED)
+                        await self._log(guild, "admin_ban_channel_perms", user.id,
+                                        details="Canal: " + after.name + " | Cambios: " + changes_str)
+                    elif name_change:
+                        # Solo log para cambio de nombre
+                        try:
+                            dm = create_embed("✏️ CANAL EDITADO",
+                                "Editaste **" + after.name + "** en **" + guild.name + "**",
+                                COLOR_YELLOW,
+                                [("📝 Cambios", changes_str, False)])
+                            await user.send(embed=dm)
+                        except discord.Forbidden:
+                            pass
+                        await self._alert_log(guild, "⚠️ CANAL EDITADO",
+                            user.mention + " edito **" + after.name + "**\n" + changes_str,
+                            COLOR_YELLOW)
                     return
         except discord.Forbidden:
             pass
