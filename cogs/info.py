@@ -140,10 +140,10 @@ class Info(commands.Cog):
             fields=[
                 ("🛡️ Seguridad", "• `/security` — Estado de seguridad\n• `/raid` — Config anti-raid\n• `/antispam` — Config anti-spam", False),
                 ("🔨 Moderación", "• `/warn` — Advertir usuario\n• `/warns` — Ver advertencias\n• `/clearwarns` — Limpiar warns\n• `/ban` — Banear usuario\n• `/unban` — Desbanear\n• `/kick` — Expulsar\n• `/mute` — Silenciar\n• `/unmute` — Quitar silencio", False),
-                ("📊 Información", "• `/whois` — Info de usuario\n• `/serveraudit` — Auditoría del servidor\n• `/botinfo` — Info del bot\n• `/ping` — Latencia", False),
+                ("📊 Información", "• `/whois` — Info de usuario\n• `/serveraudit` — Auditoría del servidor\n• `/extensions` — Ver apps/bots/webhooks\n• `/botinfo` — Info del bot\n• `/ping` — Latencia", False),
                 ("👑 Creador", "• `/owner` — Info del creador", False),
-                ("⚙️ Config", "• `/setlog` — Canal de logs\n• `/blacklist` — Blacklist\n• `/whitelist` — Whitelist", False),
-                ("📋 Protecciones Activas", "🚨 Anti-Raid\n🚫 Anti-Spam\n⚡ Anti-Flood\n🔗 Anti-Links\n🎣 Anti-Phishing\n🚫 Anti-NSFW\n📢 Anti-Menciones\n🤖 Anti-Bots\n🔠 Auto-Mod\n🔍 Anti-Alt Accounts", False),
+                ("⚙️ Config", "• `/setlog` — Canal de logs\n• `/blacklist` — Blacklist (auto-ban)\n• `/whitelist` — Whitelist (inmune a todo)\n• `/wl` — Ver whitelist\n• `/unwhitelist` — Remover de whitelist", False),
+                ("🛡️ Protecciones Activas", "🚨 Anti-Raid\n🚫 Anti-Spam\n⚡ Anti-Flood\n🔗 Anti-Links (todos)\n🎣 Anti-Phishing\n🚫 Anti-NSFW\n📢 Anti-Menciones\n🤖 Anti-Bots no autorizados\n🔠 Auto-Mod (caps, emojis, palabras)\n🔍 Anti-Alt Accounts\n🔗 Anti-Webhook\n🎭 Anti-Roles Peligrosos\n🔨 Auto-Ban (admin borra canal)\n🔨 Auto-Ban (admin modifica permisos)", False),
             ]
         )
         await interaction.response.send_message(embed=embed)
@@ -184,12 +184,25 @@ class Info(commands.Cog):
     @app_commands.describe(user="Usuario")
     async def whitelist_cmd(self, interaction: discord.Interaction, user: discord.Member):
         if not self._check_role(interaction): return
+        if user.bot:
+            return await interaction.response.send_message(embed=create_embed("❌ Error", "No puedo poner bots en whitelist.", COLOR_RED), ephemeral=True)
         await db.add_whitelist(interaction.guild.id, user.id)
-        await interaction.response.send_message(embed=create_embed("✅ WHITELIST",
-            f"**{user.mention}** ahora es **INMUNE** a todo el auto-mod", COLOR_GREEN,
-            [("👤 Usuario", user.mention, True),
+        await interaction.response.send_message(embed=create_embed("✅ WHITELIST - USUARIO INMUNE",
+            f"**{user.mention}** ahora es **INMUNE A TODO**", COLOR_GREEN,
+            [("👤 Usuario", f"{user}\n`{user.id}`", True),
              ("🛡️ Estado", "INMUNE A TODO", True),
-             ("📝 Incluye", "Anti-spam, anti-links, auto-mod", False)]))
+             ("📝 Protecciones inmunizadas", "\n".join([
+                 "- Anti-Spam",
+                 "- Anti-Flood",
+                 "- Anti-Links",
+                 "- Anti-Phishing",
+                 "- Anti-NSFW",
+                 "- Anti-Menciones",
+                 "- Auto-Mod",
+                 "- Palabras prohibidas",
+                 "- Anti-Bots",
+             ]), False),
+             ("👑 Agregado por", interaction.user.mention, True)]))
 
     @app_commands.command(name="unwhitelist", description="Remover usuario de la whitelist")
     @app_commands.describe(user_id="ID del usuario")
@@ -197,20 +210,23 @@ class Info(commands.Cog):
         if not self._check_role(interaction): return
         await db.remove_whitelist(interaction.guild.id, int(user_id))
         await interaction.response.send_message(embed=create_embed("✅ WHITELIST REMOVIDA",
-            f"Usuario `{user_id}` ya no es inmune", COLOR_YELLOW))
+            f"Usuario `{user_id}` ya no es inmune. Ahora sera afectado por todas las protecciones.", COLOR_YELLOW))
 
     @app_commands.command(name="wl", description="Ver whitelist completa")
     async def wl_cmd(self, interaction: discord.Interaction):
         wl = await db.get_whitelist(interaction.guild.id)
         if not wl:
-            return await interaction.response.send_message(embed=create_embed("✅ Whitelist", "Vacía.", COLOR_GREEN))
+            return await interaction.response.send_message(embed=create_embed("✅ Whitelist",
+                "No hay usuarios inmunes. Usa `/whitelist @user` para agregar uno.", COLOR_GREEN))
         lines = []
         for entry in wl:
             member = interaction.guild.get_member(entry[2])
-            lines.append(f"• {member.mention if member else f'`{entry[2]}`'}")
-        await interaction.response.send_message(embed=create_embed("✅ Whitelist",
+            name = member.mention if member else f"`{entry[2]}`"
+            lines.append(f"• {name}")
+        await interaction.response.send_message(embed=create_embed("✅ Whitelist - Usuarios Inmunes",
             "\n".join(lines[:20]), COLOR_GREEN,
-            [("👥 Total", str(len(wl)), True)]))
+            [("👥 Total", str(len(wl)), True),
+             ("📝 Comandos", "/whitelist @user - Agregar\n/unwhitelist ID - Remover", False)]))
 
     # ═══════════════════════════════════════════
     #  LOGS
