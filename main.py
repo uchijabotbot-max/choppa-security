@@ -68,6 +68,9 @@ class SecurityBot(commands.Bot):
             "cogs.info",
             "cogs.nuclear",
             "cogs.audit",
+            "cogs.backup",
+            "cogs.behavior",
+            "cogs.canary",
         ]
 
         for cog in cogs:
