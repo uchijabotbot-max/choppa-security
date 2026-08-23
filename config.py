@@ -7,7 +7,7 @@
 BOT_NAME = "Choppa Security"
 BOT_VERSION = "6.0"
 BOT_FOOTER = "by choppa"
-BOT_IMAGE = "https://media.discordapp.net/attachments/1477385853943812218/1479335985106915459/215_Silver_Surfer_4K_3840x2160p_OLED_Live_Wallpaper_2026_NEW__1_hour_-_YouTube_-_Google_Chrome_3_6_2026_12_31_19_AM.png?ex=6a8bc97f&is=6a8a77ff&hm=e8e51e82708c2fb47560d1eb2f14e59d846c038df421c8f3cd08d26d6c6a8423&=&format=webp&quality=lossless&width=1024&height=576"
+BOT_IMAGE = "https://cdn.discordapp.com/attachments/1539487772946210890/1541176083078971392/ChatGPT_Image_23_ago_2026_04_02_14_p.m..png?ex=6a8ca393&is=6a8b5213&hm=95c24b195c1ad22da23f61a1225d03cbe7fbf2e027ba60fed3768bd35b4a768d"
 
 # ── Colores ───────────────────────────────────────
 COLOR_PRIMARY  = 0x000000   # Negro
