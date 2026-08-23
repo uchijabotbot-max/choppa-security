@@ -1,0 +1,12 @@
+.env
+*.db
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+data/
+security_bot.log

@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: choppa-security
+    runtime: docker
+    plan: free
+    envVars:
+      - key: DISCORD_TOKEN
+        sync: false
+    healthCheckPath: /
