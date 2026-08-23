@@ -20,7 +20,7 @@ BOT_FOOTER = "by choppa"
 
 # ── Info del Dueño / Creador ─────────────────
 OWNER_NAME = "Choppa-?"
-OWNER_ID = "Tu_ID_de_Discord_aqui"  # Cambia esto por tu ID real
+OWNER_ID = "1331303237315461163"
 OWNER_STATUS = "https://Programer"
 OWNER_BADGES = ["💎 Nitro", "🤖 Bot Developer", "🛡️ Security Expert"]
 OWNER_DISCORD = "choppa"
