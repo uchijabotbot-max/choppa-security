@@ -14,7 +14,8 @@ from datetime import datetime, timedelta
 from config import (
     RAID_JOIN_THRESHOLD, RAID_TIME_WINDOW, SPAM_THRESHOLD, SPAM_TIME_WINDOW,
     MUTE_DEFAULT_DURATION, MAX_MENTIONS, MAX_CAPS_PERCENT, MIN_CAPS_LENGTH,
-    MAX_EMOJI_COUNT, BANNED_WORDS, PHISHING_DOMAINS, SECURITY_ROLES,
+    MAX_EMOJI_COUNT, BANNED_WORDS, BANNED_WORDS_BAN, BAD_WORD_BAN_THRESHOLD,
+    PHISHING_DOMAINS, SECURITY_ROLES,
     BLOCK_ALL_LINKS, NSFW_KEYWORDS, FLOOD_THRESHOLD, FLOOD_TIME_WINDOW,
     SUSPICIOUS_NAMES, ALT_ACCOUNT_DAYS, BOT_NAME,
     COLOR_RED, COLOR_GREEN, COLOR_YELLOW, COLOR_BLUE, COLOR_ORANGE
@@ -566,15 +567,53 @@ class Security(commands.Cog):
                 except discord.Forbidden:
                     pass
 
+                # BAN INMEDIATO por palabras extremas
+                if word in BANNED_WORDS_BAN:
+                    try:
+                        await self._dm(message.author, "🔨 BAN INMEDIATO",
+                            "Fuiste baneado de **" + message.guild.name + "** por contenido extremo.",
+                            COLOR_RED,
+                            [("📝 Razon", "Palabra extremamente prohibida: " + word, False),
+                             ("🕐 Hora", "<t:" + str(int(datetime.utcnow().timestamp())) + ":F>", True)])
+                        await message.author.ban(reason="Palabra prohibida extrema: " + word)
+                    except discord.Forbidden:
+                        pass
+                    await self._alert_log(message.guild, "🔨 BAN INMEDIATO",
+                        message.author.mention + " baneado por palabra extrema: `" + word + "`",
+                        COLOR_RED)
+                    await self._log(message.guild, "banned_word_ban", message.author.id, details="EXTREMO: " + word)
+                    return
+
+                # Warn normal
                 await db.add_warn(message.guild.id, message.author.id, self.bot.user.id, "Palabra prohibida: " + word)
                 warn_count = await db.get_warn_count(message.guild.id, message.author.id)
+
+                # BAN por reincidencia (3 palabras prohibidas)
+                if warn_count >= BAD_WORD_BAN_THRESHOLD:
+                    try:
+                        await self._dm(message.author, "🔨 BAN POR PALABRAS PROHIBIDAS",
+                            "Fuiste baneado de **" + message.guild.name + "** por reincidencia en palabras prohibidas.",
+                            COLOR_RED,
+                            [("🔢 Total palabras prohibidas", str(warn_count), True),
+                             ("📋 Razon", "Mas de " + str(BAD_WORD_BAN_THRESHOLD) + " palabras prohibidas", False),
+                             ("🕐 Hora", "<t:" + str(int(datetime.utcnow().timestamp())) + ":F>", True)])
+                        await message.author.ban(reason="Reincidencia: " + str(warn_count) + " palabras prohibidas")
+                    except discord.Forbidden:
+                        pass
+                    await self._alert_log(message.guild, "🔨 BAN POR REINCIDENCIA",
+                        message.author.mention + " baneado por " + str(warn_count) + " palabras prohibidas",
+                        COLOR_RED)
+                    await self._log(message.guild, "banned_word_ban", message.author.id,
+                                    details="Reincidencia: " + str(warn_count) + " palabras")
+                    return
 
                 await self._dm(message.author, "🚫 PALABRA PROHIBIDA",
                     "Tu mensaje fue eliminado en **" + message.guild.name + "**.",
                     COLOR_RED,
                     [("📍 Canal", "#" + message.channel.name, True),
-                     ("⚠️ Warns", str(warn_count), True),
-                     ("📝 Tu mensaje", content[:500], False)])
+                     ("⚠️ Palabras prohibidas", str(warn_count) + "/" + str(BAD_WORD_BAN_THRESHOLD) + " (ban)", True),
+                     ("Tu mensaje", content[:500], False),
+                     ("⚠️ Siguiente", "Ban automatico si alcanzas " + str(BAD_WORD_BAN_THRESHOLD), False)])
                 await self._log(message.guild, "banned_word", message.author.id, details="Palabra: " + word)
                 return
 

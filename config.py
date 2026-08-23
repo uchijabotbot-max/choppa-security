@@ -65,13 +65,45 @@ PHISHING_DOMAINS = [
 ]
 
 # ── Palabras Prohibidas ──────────────────────────
+# Lista ULTRA de palabras prohibidas - banea automaticamente
 BANNED_WORDS = [
+    # Racismo / Odio
     "nigger", "nigga", "faggot", "retard", "kike",
-    "puto", "puta", "pendejo", "pendeja", "cabron",
-    "hijo de puta", "hijodeputa", "estupido", "imbecil",
-    "boludo", "boluda", "pelotudo", "forro",
-    "cp", "nsfl", "gore",
+    "spic", "chink", "cracker", "wetback", "beaner",
+    "towelhead", "honky", "jap",
+    # Sexismo
+    "slut", "whore", "bitch", "hoe", "cunt",
+    # Spanish
+    "puto", "puta", "pendejo", "pendeja", "cabron", "cabrona",
+    "hijo de puta", "hijodeputa", "concha de tu madre",
+    "la concha", "estupido", "estupida", "imbecil", "idiota",
+    "basura", "mierda", "mrd",
+    "boludo", "boluda", "pelotudo", "pelotuda",
+    "forro", "forra", "gil", "gila",
+    "chorro", "chora", "gato", "gata",
+    "zorra", "sapo", "rata",
+    # Portugues
+    "caralho", "porra", "foda", "desgraça", "arrombado",
+    # Inglés vulgar
+    "asshole", "dickhead", "dumbass", "motherfucker",
+    "dick", "pussy", "penis", "vagina",
+    "cum", "boobs", "tits", "ass",
+    # Ilegales / Peligrosos
+    "cp", "nsfl", "gore", "kill yourself", "kys",
+    "suicide", "murder",
+    # Slurs
+    "tranny", "dyke", "fag", "fags",
 ]
+
+# Palabras que causan BAN INMEDIATO (sin warnings)
+BANNED_WORDS_BAN = [
+    "kill yourself", "kys",
+    "cp", "nsfl", "gore",
+    "child porn",
+]
+
+# Numero de palabras prohibidas para ban automatico
+BAD_WORD_BAN_THRESHOLD = 3   # 3 palabras malas = ban
 
 # ── Nombres Sospechosos ──────────────────────────
 SUSPICIOUS_NAMES = [
