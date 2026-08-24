@@ -143,6 +143,7 @@ class Info(commands.Cog):
                 ("📊 Información", "• `/whois` — Info de usuario\n• `/serveraudit` — Auditoría del servidor\n• `/extensions` — Ver apps/bots/webhooks\n• `/dashboard` — Dashboard en tiempo real\n• `/stats` — Estadísticas del bot\n• `/botinfo` — Info del bot\n• `/ping` — Latencia\n• `/behavior` — Análisis de comportamiento\n• `/suspicious` — Ver usuarios sospechosos\n• `/score` — Score de sospecha de usuario\n• `/patterns` — Patrones de actividad", False),
                 ("👑 Creador", "• `/owner` — Info del creador", False),
                 ("⚙️ Config", "• `/setlog` — Canal de logs\n• `/blacklist` — Blacklist (auto-ban)\n• `/whitelist` — Whitelist (inmune a todo)\n• `/wl` — Ver whitelist\n• `/unwhitelist` — Remover de whitelist\n• `/backup` — Backup del servidor\n• `/backups` — Ver backups\n• `/canary` — Canary Trap (anti-infiltrados)\n• `/canaryinfo` — Estado del Canary Trap\n• `/canaryleak` — Reportar filtracion\n• `/canaryclear` — Limpiar Canary Trap", False),
+                ("🎉 Features Avanzadas", "• `/verify` — Sistema de verificacion\n• `/autorole` — Rol automatico al entrar\n• `/welcome` — Canal de bienvenida\n• `/goodbye` — Canal de despedida\n• `/lockdown` — Cerrar todos los canales\n• `/unlock` — Abrir todos los canales\n• `/serverstats` — Stats del servidor\n• `/slowmode` — Slowmode en canal\n• `/reactionrole` — Reaction roles", False),
                 ("🛡️ Protecciones Activas (30+)", "\n".join([
                     "🚨 Anti-Raid (2 en 0.1s)",
                     "🚫 Anti-Spam",

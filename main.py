@@ -58,6 +58,7 @@ class ChoppaSecurity(commands.Bot):
             "cogs.dashboard",
             "cogs.behavior",
             "cogs.canary",
+            "cogs.advanced",
         ]
 
         loaded = 0
