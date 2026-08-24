@@ -27,8 +27,8 @@ OWNER_BIO = "Creador de Choppa Security — Bot de seguridad más avanzado de Di
 SECURITY_ROLES = ["Admin", "Moderator", "Security", "Owner", "Administrador", "Moderador"]
 
 # ── Anti-Raid Ultra Agresivo ────────────────────
-RAID_JOIN_THRESHOLD = 2       # 2 joins en 5s → raid
-RAID_TIME_WINDOW = 5          # 5 segundos
+RAID_JOIN_THRESHOLD = 2       # 2 joins en 0.1s → raid
+RAID_TIME_WINDOW = 0.1        # 0.1 segundos (ultra rapido)
 # Auto-lockdown durante raid (bloquea todos los canales)
 RAID_AUTO_LOCKDOWN = True
 # Auto-ban todos los joins sospechosos durante raid
