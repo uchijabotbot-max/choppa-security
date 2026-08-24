@@ -26,9 +26,17 @@ OWNER_BIO = "Creador de Choppa Security — Bot de seguridad más avanzado de Di
 # ── Seguridad ─────────────────────────────────────
 SECURITY_ROLES = ["Admin", "Moderator", "Security", "Owner", "Administrador", "Moderador"]
 
-# ── Anti-Raid ─────────────────────────────────────
-RAID_JOIN_THRESHOLD = 3       # 3 joins en 5s → raid
+# ── Anti-Raid Ultra Agresivo ────────────────────
+RAID_JOIN_THRESHOLD = 2       # 2 joins en 5s → raid
 RAID_TIME_WINDOW = 5          # 5 segundos
+# Auto-lockdown durante raid (bloquea todos los canales)
+RAID_AUTO_LOCKDOWN = True
+# Auto-ban todos los joins sospechosos durante raid
+RAID_AUTO_BAN_ALL = True
+# Ping a admins durante raid
+RAID_PING_ADMINS = True
+# Roles que pueden pingear durante raid
+RAID_ALERT_ROLES = ["Admin", "Moderator", "Security", "Administrador", "Moderador"]
 
 # ── Anti-Spam / Flood ─────────────────────────────
 SPAM_THRESHOLD = 3            # 3 msgs en 5s → mute
@@ -118,11 +126,16 @@ SUSPICIOUS_NAMES = [
     "spam", "bot", "test", "alt",
 ]
 
-# ── Anti-Nuke ─────────────────────────────────────
-NUKE_CHANNEL_DELETE = 2       # 2 canales eliminados en 5s
-NUKE_CHANNEL_CREATE = 3       # 3 canales creados en 5s
-NUKE_ROLE_DELETE = 2          # 2 roles eliminados en 5s
+# ── Anti-Nuke Ultra Agresivo ─────────────────────
+NUKE_CHANNEL_DELETE = 2       # 2 canales eliminados en 5s → nuke
+NUKE_CHANNEL_CREATE = 2       # 2 canales creados en 5s → nuke
+NUKE_ROLE_DELETE = 2          # 2 roles eliminados en 5s → nuke
+NUKE_ROLE_CREATE = 3          # 3 roles creados en 5s → nuke
 NUKE_TIME_WINDOW = 5
+# Auto-lockdown durante nuke
+NUKE_AUTO_LOCKDOWN = True
+# Auto-ban al responsable de nuke
+NUKE_AUTO_BAN = True
 
 # ── Cuentas Nuevas ────────────────────────────────
 ALT_ACCOUNT_DAYS = 14         # 14 dias (antes 7) - mas estricto
@@ -148,6 +161,11 @@ ANTI_ROLE_DELETE_ENABLED = True
 ROLE_DELETE_THRESHOLD = 2     # 2 roles eliminados en 5s = nuke
 ROLE_DELETE_TIME_WINDOW = 5
 
+# ── Anti-Mass Role Create ──────────────────────
+ANTI_ROLE_CREATE_ENABLED = True
+ROLE_CREATE_THRESHOLD = 3    # 3 roles creados en 5s = nuke
+ROLE_CREATE_TIME_WINDOW = 5
+
 # ── Anti-Mass Kick ─────────────────────────────
 ANTI_MASS_KICK_ENABLED = True
 MASS_KICK_THRESHOLD = 2      # 2 kicks en 5s = ban
@@ -157,6 +175,26 @@ MASS_KICK_TIME_WINDOW = 5
 ANTI_MASS_BAN_ENABLED = True
 MASS_BAN_THRESHOLD = 1       # 1 ban en 5s = sospechoso
 MASS_BAN_TIME_WINDOW = 5
+
+# ── Anti-Mass Channel Create ───────────────────
+ANTI_MASS_CHANNEL_CREATE_ENABLED = True
+MASS_CHANNEL_CREATE_THRESHOLD = 2  # 2 canales creados en 5s
+MASS_CHANNEL_CREATE_TIME_WINDOW = 5
+
+# ── Anti-Mass Channel Delete ───────────────────
+ANTI_MASS_CHANNEL_DELETE_ENABLED = True
+MASS_CHANNEL_DELETE_THRESHOLD = 2  # 2 canales eliminados en 5s
+MASS_CHANNEL_DELETE_TIME_WINDOW = 5
+
+# ── Anti-Mass Unban ────────────────────────────
+ANTI_MASS_UNBAN_ENABLED = True
+MASS_UNBAN_THRESHOLD = 3     # 3 unbans en 5s = sospechoso
+MASS_UNBAN_TIME_WINDOW = 5
+
+# ── Anti-Voice Raid ────────────────────────────
+ANTI_VOICE_RAID_ENABLED = True
+VOICE_RAID_THRESHOLD = 5     # 5 joins a voz en 5s
+VOICE_RAID_TIME_WINDOW = 5
 
 # ── Backup Automatico ──────────────────────────
 BACKUP_ENABLED = True

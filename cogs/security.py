@@ -25,6 +25,13 @@ from config import (
     ANTI_MASS_BAN_ENABLED, MASS_BAN_THRESHOLD, MASS_BAN_TIME_WINDOW,
     ANTI_APP_ENABLED, ALLOWED_APPS,
     ABNORMAL_ACTION_THRESHOLD, ABNORMAL_ACTION_WINDOW,
+    RAID_AUTO_LOCKDOWN, RAID_AUTO_BAN_ALL, RAID_PING_ADMINS, RAID_ALERT_ROLES,
+    NUKE_AUTO_LOCKDOWN, NUKE_AUTO_BAN, NUKE_CHANNEL_CREATE, NUKE_CHANNEL_DELETE,
+    ANTI_ROLE_CREATE_ENABLED, ROLE_CREATE_THRESHOLD, ROLE_CREATE_TIME_WINDOW,
+    ANTI_MASS_CHANNEL_CREATE_ENABLED, MASS_CHANNEL_CREATE_THRESHOLD, MASS_CHANNEL_CREATE_TIME_WINDOW,
+    ANTI_MASS_CHANNEL_DELETE_ENABLED, MASS_CHANNEL_DELETE_THRESHOLD, MASS_CHANNEL_DELETE_TIME_WINDOW,
+    ANTI_MASS_UNBAN_ENABLED, MASS_UNBAN_THRESHOLD, MASS_UNBAN_TIME_WINDOW,
+    ANTI_VOICE_RAID_ENABLED, VOICE_RAID_THRESHOLD, VOICE_RAID_TIME_WINDOW,
     COLOR_RED, COLOR_GREEN, COLOR_YELLOW, COLOR_BLUE, COLOR_ORANGE
 )
 from utils.embeds import (
@@ -54,8 +61,18 @@ class Security(commands.Cog):
         self._abnormal_actions = defaultdict(lambda: defaultdict(list))
         # Track channel creates for nuke detection
         self._channel_create_times = defaultdict(list)
+        # Track channel deletes for nuke detection
+        self._channel_delete_times = defaultdict(list)
+        # Track role creates for nuke detection
+        self._role_create_times = defaultdict(list)
+        # Track unbans for mass unban detection
+        self._unban_times = defaultdict(list)
+        # Track voice joins for voice raid detection
+        self._voice_join_times = defaultdict(list)
         # Track integrations
         self._known_integrations = {}
+        # Track lockdown state
+        self._lockdown_guilds = set()
 
     # ==========================================
     #  EVENTOS - MIEMBROS
@@ -325,9 +342,31 @@ class Security(commands.Cog):
         action = ""
         if before.channel is None and after.channel:
             action = "Conectado a " + after.channel.name
+
+            # ANTI-VOICE RAID
+            if ANTI_VOICE_RAID_ENABLED:
+                now = time.time()
+                gid = member.guild.id
+                if not hasattr(self, '_voice_join_times'):
+                    self._voice_join_times = defaultdict(list)
+                self._voice_join_times[gid].append(now)
+                self._voice_join_times[gid] = [
+                    t for t in self._voice_join_times[gid]
+                    if now - t < VOICE_RAID_TIME_WINDOW
+                ]
+                if len(self._voice_join_times[gid]) >= VOICE_RAID_THRESHOLD:
+                    await self._alert_log(member.guild, "🔊 VOICE RAID DETECTADO",
+                        str(len(self._voice_join_times[gid])) + " usuarios conectados a voz en " + str(VOICE_RAID_TIME_WINDOW) + "s",
+                        COLOR_RED,
+                        [("👥 Usuarios", str(len(self._voice_join_times[gid])), True),
+                         ("⏱️ Ventana", str(VOICE_RAID_TIME_WINDOW) + "s", True),
+                         ("⚡ Accion", "Monitoreo intensivo activado", True),
+                         ("🕐 Hora", "<t:" + str(int(datetime.utcnow().timestamp())) + ":F>", True)])
+                    self._voice_join_times[gid] = []
+
         elif before.channel and after.channel is None:
             action = "Desconectado de " + before.channel.name
-        elif before.channel != after.channel:
+        elif before.channel and after.channel and before.channel != after.channel:
             action = "Movido de " + before.channel.name + " a " + after.channel.name
         elif before.self_mute != after.self_mute:
             action = "Self-mute cambiado"
@@ -385,7 +424,7 @@ class Security(commands.Cog):
                     self._channel_create_times[guild.id].append(now)
                     self._channel_create_times[guild.id] = [
                         t for t in self._channel_create_times[guild.id]
-                        if now - t < ABNORMAL_ACTION_WINDOW
+                        if now - t < MASS_CHANNEL_CREATE_TIME_WINDOW
                     ]
                     # Track abnormal actions
                     if not entry.user.bot:
@@ -401,16 +440,54 @@ class Security(commands.Cog):
         except discord.Forbidden:
             pass
 
-        # Si se crean muchos canales = nuke
-        from config import NUKE_CHANNEL_CREATE
-        if len(self._channel_create_times[guild.id]) >= NUKE_CHANNEL_CREATE:
-            await self._alert_log(guild, "🚨 NUKE DETECTADO - CANALES CREADOS",
-                str(len(self._channel_create_times[guild.id])) + " canales creados en " + str(ABNORMAL_ACTION_WINDOW) + "s",
-                COLOR_RED,
-                [("🔢 Canales", str(len(self._channel_create_times[guild.id])), True),
-                 ("⏱️ Ventana", str(ABNORMAL_ACTION_WINDOW) + "s", True),
-                 ("⚡ Accion", "Auto-lockdown + investigacion", True)])
-            self._channel_create_times[guild.id] = []
+        # ANTI-MASS CHANNEL CREATE - Nuke detection
+        if ANTI_MASS_CHANNEL_CREATE_ENABLED:
+            if len(self._channel_create_times[guild.id]) >= MASS_CHANNEL_CREATE_THRESHOLD:
+                # BAN al responsable
+                try:
+                    async for entry in guild.audit_logs(limit=10, action=discord.AuditLogAction.channel_create):
+                        if not entry.user.bot:
+                            user = entry.user
+                            count = len(self._channel_create_times[guild.id])
+                            try:
+                                dm = create_embed("🔨 BAN - MASS CHANNEL CREATE",
+                                    "Fuiste baneado de **" + guild.name + "** por crear multiples canales",
+                                    COLOR_RED,
+                                    [("📝 Razon", "Creacion masiva de canales", False),
+                                     ("🔢 Canales creados", str(count), True),
+                                     ("⏱️ Ventana", str(MASS_CHANNEL_CREATE_TIME_WINDOW) + "s", True),
+                                     ("🕐 Hora", "<t:" + str(int(datetime.utcnow().timestamp())) + ":F>", True)])
+                                await user.send(embed=dm)
+                            except discord.Forbidden:
+                                pass
+                            try:
+                                await user.ban(reason="Mass channel create: " + str(count) + " canales")
+                            except discord.Forbidden:
+                                pass
+                            break
+                except discord.Forbidden:
+                    pass
+
+                # AUTO-LOCKDOWN
+                if NUKE_AUTO_LOCKDOWN:
+                    self._lockdown_guilds.add(guild.id)
+                    for ch in guild.text_channels:
+                        try:
+                            overwrite = ch.overwrites_for(guild.default_role)
+                            overwrite.send_messages = False
+                            await ch.set_permissions(guild.default_role, overwrite=overwrite,
+                                                     reason="NUKE - Auto-lockdown")
+                        except discord.Forbidden:
+                            pass
+
+                await self._alert_log(guild, "🚨 NUKE - MASS CHANNEL CREATE",
+                    str(len(self._channel_create_times[guild.id])) + " canales creados en " + str(MASS_CHANNEL_CREATE_TIME_WINDOW) + "s",
+                    COLOR_RED,
+                    [("🔢 Canales", str(len(self._channel_create_times[guild.id])), True),
+                     ("⏱️ Ventana", str(MASS_CHANNEL_CREATE_TIME_WINDOW) + "s", True),
+                     ("🔒 Lockdown", "Activado" if NUKE_AUTO_LOCKDOWN else "No", True),
+                     ("⚡ Accion", "BAN del responsable + lockdown", True)])
+                self._channel_create_times[guild.id] = []
 
         await self._alert_log(guild, "📁 CANAL CREADO",
             "Nuevo canal: **#" + channel.name + "**\nCreado por: " + str(creator),
@@ -911,10 +988,45 @@ class Security(commands.Cog):
     @commands.Cog.listener()
     async def on_member_unban(self, guild, user):
         moderator = "Desconocido"
+        now = time.time()
         try:
             async for entry in guild.audit_logs(limit=5, action=discord.AuditLogAction.unban):
                 if entry.target.id == user.id:
                     moderator = entry.user.mention
+
+                    # ANTI-MASS UNBAN
+                    if ANTI_MASS_UNBAN_ENABLED:
+                        uid = entry.user.id
+                        if not hasattr(self, '_unban_times'):
+                            self._unban_times = defaultdict(list)
+                        self._unban_times[guild.id].append(now)
+                        self._unban_times[guild.id] = [
+                            t for t in self._unban_times[guild.id]
+                            if now - t < MASS_UNBAN_TIME_WINDOW
+                        ]
+                        if len(self._unban_times[guild.id]) >= MASS_UNBAN_THRESHOLD:
+                            try:
+                                dm = create_embed("🔨 BAN - MASS UNBAN",
+                                    "Fuiste baneado de **" + guild.name + "** por desbanear multiples usuarios",
+                                    COLOR_RED,
+                                    [("📝 Razon", "Desbaneo masivo", False),
+                                     ("🔢 Unbans", str(len(self._unban_times[guild.id])), True),
+                                     ("⏱️ Ventana", str(MASS_UNBAN_TIME_WINDOW) + "s", True),
+                                     ("🕐 Hora", "<t:" + str(int(datetime.utcnow().timestamp())) + ":F>", True)])
+                                await entry.user.send(embed=dm)
+                            except discord.Forbidden:
+                                pass
+                            try:
+                                await entry.user.ban(reason="Mass unban: " + str(len(self._unban_times[guild.id])) + " unbans")
+                            except discord.Forbidden:
+                                pass
+                            await self._alert_log(guild, "🔨 BAN - MASS UNBAN",
+                                entry.user.mention + " fue baneado por desbanear multiples usuarios",
+                                COLOR_RED,
+                                [("👤 Responsable", entry.user.mention, True),
+                                 ("🔢 Unbans", str(len(self._unban_times[guild.id])), True),
+                                 ("⚡ Accion", "BAN automatico", True)])
+                            self._unban_times[guild.id] = []
                     break
         except discord.Forbidden:
             pass
@@ -923,7 +1035,9 @@ class Security(commands.Cog):
             dm = create_embed("✅ DESBANEADO",
                 "Has sido desbaneado de **" + guild.name + "**",
                 COLOR_GREEN,
-                [("👮 Moderador", str(moderator), True),
+                [("👤 Usuario", str(user), True),
+                 ("📋 ID", "`" + str(user.id) + "`", True),
+                 ("👮 Moderador", str(moderator), True),
                  ("🕐 Hora", "<t:" + str(int(datetime.utcnow().timestamp())) + ":F>", True)])
             await user.send(embed=dm)
         except discord.Forbidden:
@@ -987,38 +1101,102 @@ class Security(commands.Cog):
         self.join_times[gid] = [t for t in self.join_times[gid] if now - t < window]
 
         if len(self.join_times[gid]) >= threshold:
-            if gid in self.raid_cooldown and now - self.raid_cooldown[gid] < 60:
+            if gid in self.raid_cooldown and now - self.raid_cooldown[gid] < 30:
                 return
             self.raid_cooldown[gid] = now
+            raid_count = len(self.join_times[gid])
+            guild = member.guild
 
-            await self._alert_log(member.guild, "🚨 RAID DETECTADO",
-                str(len(self.join_times[gid])) + " usuarios se unieron en " + str(window) + " segundos",
+            # RAID DETECTADO - Embed completo
+            await self._alert_log(guild, "🚨 RAID DETECTADO - EMERGENCIA",
+                "**RAID EN PROGRESO** - " + str(raid_count) + " usuarios se unieron en " + str(window) + " segundos",
                 COLOR_RED,
-                [("👥 Usuarios", str(len(self.join_times[gid])), True),
+                [("👥 Usuarios en raid", str(raid_count), True),
                  ("⏱️ Ventana", str(window) + "s", True),
-                 ("⚡ Accion", "Auto-ban de todos los involucrados", True),
+                 ("⚡ Accion", "BAN masivo de todos los involucrados", True),
+                 ("🔒 Lockdown", "Activado" if RAID_AUTO_LOCKDOWN else "Desactivado", True),
+                 ("🔔 Alertas", "Enviadas a admins" if RAID_PING_ADMINS else "No", True),
                  ("🕐 Hora", "<t:" + str(int(datetime.utcnow().timestamp())) + ":F>", True)])
 
+            # AUTO-LOCKDOWN - Bloquear todos los canales
+            if RAID_AUTO_LOCKDOWN:
+                self._lockdown_guilds.add(gid)
+                for ch in guild.text_channels:
+                    try:
+                        overwrite = ch.overwrites_for(guild.default_role)
+                        overwrite.send_messages = False
+                        await ch.set_permissions(guild.default_role, overwrite=overwrite,
+                                                 reason="RAID - Auto-lockdown")
+                    except discord.Forbidden:
+                        pass
+                # Desbloquear canales de admin
+                for ch in guild.text_channels:
+                    if ch.name in ["security-logs", "admin-chat", "staff"]:
+                        try:
+                            overwrite = ch.overwrites_for(guild.default_role)
+                            overwrite.send_messages = True
+                            await ch.set_permissions(guild.default_role, overwrite=overwrite)
+                        except discord.Forbidden:
+                            pass
+                await self._alert_log(guild, "🔒 AUTO-LOCKDOWN ACTIVADO",
+                    "Todos los canales han sido bloqueados por raid",
+                    COLOR_RED,
+                    [("🔒 Estado", "TODOS LOS CANALES BLOQUEADOS", False),
+                     ("📝 Razon", "RAID DETECTADO - " + str(raid_count) + " joins", False),
+                     ("💡 Para desbloquear", "Usa `/unlock`", True)])
+
+            # PING A ADMINS
+            if RAID_PING_ADMINS:
+                admin_mentions = []
+                for role in guild.roles:
+                    if role.name in RAID_ALERT_ROLES:
+                        admin_mentions.append(role.mention)
+                if admin_mentions:
+                    try:
+                        ch = guild.system_channel or guild.text_channels[0]
+                        await ch.send(
+                            "🚨🚨🚨 **RAID DETECTADO** 🚨🚨🚨\n" +
+                            "\n".join(admin_mentions) + "\n" +
+                            "**" + str(raid_count) + "** usuarios sospechosos se unieron en **" + str(window) + "s**\n" +
+                            "Auto-ban y lockdown activados",
+                            allowed_mentions=discord.AllowedMentions(roles=True))
+                    except (discord.Forbidden, Exception):
+                        pass
+
+            # AUTO-BAN de todos los usuarios recientes
             recent = [
-                m for m in member.guild.members
+                m for m in guild.members
                 if m.joined_at and (datetime.utcnow() - m.joined_at).total_seconds() < window
                 and not m.bot
             ]
+            banned_count = 0
             for m in recent:
                 try:
                     dm = create_embed("🚨 BAN POR RAID",
-                        "Fuiste baneado de **" + member.guild.name + "** por ser parte de un raid.",
+                        "Fuiste baneado de **" + guild.name + "** por ser parte de un raid.",
                         COLOR_RED,
-                        [("📝 Razon", "Raid: " + str(len(self.join_times[gid])) + " joins en " + str(window) + "s", False),
+                        [("📝 Razon", "Raid: " + str(raid_count) + " joins en " + str(window) + "s", False),
+                         ("👥 Total baneados", str(len(recent)), True),
+                         ("🔒 Servidor", "En lockdown", True),
                          ("🕐 Hora", "<t:" + str(int(datetime.utcnow().timestamp())) + ":F>", True)])
                     await m.send(embed=dm)
                 except discord.Forbidden:
                     pass
                 try:
-                    await m.ban(reason="Anti-Raid")
-                    await self._log(member.guild, "raid_ban", m.id, details="Auto-ban por raid")
+                    await m.ban(reason="Anti-Raid: " + str(raid_count) + " joins en " + str(window) + "s")
+                    await self._log(guild, "raid_ban", m.id, details="Auto-ban por raid")
+                    banned_count += 1
                 except discord.Forbidden:
                     pass
+
+            # Resumen del raid
+            await self._alert_log(guild, "✅ RAID DETENIDO",
+                "Raid neutralizado exitosamente",
+                COLOR_GREEN,
+                [("🔨 Usuarios baneados", str(banned_count), True),
+                 ("🔒 Lockdown", "Activo" if RAID_AUTO_LOCKDOWN else "No", True),
+                 ("📝 Para desbloquear", "Usa `/unlock`", True),
+                 ("🕐 Hora", "<t:" + str(int(datetime.utcnow().timestamp())) + ":F>", True)])
 
             self.join_times[gid] = []
 
