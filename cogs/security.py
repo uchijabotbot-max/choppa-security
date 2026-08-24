@@ -18,7 +18,7 @@ from config import (
     MAX_EMOJI_COUNT, BANNED_WORDS, BANNED_WORDS_BAN, BAD_WORD_BAN_THRESHOLD,
     PHISHING_DOMAINS, SECURITY_ROLES,
     BLOCK_ALL_LINKS, NSFW_KEYWORDS, FLOOD_THRESHOLD, FLOOD_TIME_WINDOW,
-    SUSPICIOUS_NAMES, ALT_ACCOUNT_DAYS, BOT_NAME,
+    SUSPICIOUS_NAMES, ALT_ACCOUNT_DAYS, BOT_NAME, OWNER_ID,
     ANTI_INVITE_ENABLED, INVITE_PATTERNS, LINK_BAN_THRESHOLD,
     ANTI_ROLE_DELETE_ENABLED, ROLE_DELETE_THRESHOLD, ROLE_DELETE_TIME_WINDOW,
     ANTI_MASS_KICK_ENABLED, MASS_KICK_THRESHOLD, MASS_KICK_TIME_WINDOW,
@@ -1753,7 +1753,11 @@ class Security(commands.Cog):
 
     @app_commands.command(name="apagar", description="Apagar TODA la proteccion del bot")
     async def apagar_cmd(self, interaction: discord.Interaction):
-        if not self._has_role(interaction):
+        # Solo el duño del servidor o el duño del bot puede usar esto
+        if interaction.user.id != interaction.guild.owner_id and str(interaction.user.id) != OWNER_ID:
+            await interaction.response.send_message(
+                embed=create_embed("❌ Sin permisos", "Solo el **duño del servidor** o el **creador del bot** puede usar este comando.", COLOR_RED),
+                ephemeral=True)
             return
         await interaction.response.defer()
 
@@ -1798,7 +1802,11 @@ class Security(commands.Cog):
 
     @app_commands.command(name="encender", description="Encender TODA la proteccion del bot")
     async def encender_cmd(self, interaction: discord.Interaction):
-        if not self._has_role(interaction):
+        # Solo el duño del servidor o el duño del bot puede usar esto
+        if interaction.user.id != interaction.guild.owner_id and str(interaction.user.id) != OWNER_ID:
+            await interaction.response.send_message(
+                embed=create_embed("❌ Sin permisos", "Solo el **duño del servidor** o el **creador del bot** puede usar este comando.", COLOR_RED),
+                ephemeral=True)
             return
         await interaction.response.defer()
 
