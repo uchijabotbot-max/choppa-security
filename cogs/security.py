@@ -1751,6 +1751,96 @@ class Security(commands.Cog):
         await interaction.response.send_message(
             embed=security_status(interaction.guild, settings))
 
+    @app_commands.command(name="apagar", description="Apagar TODA la proteccion del bot")
+    async def apagar_cmd(self, interaction: discord.Interaction):
+        if not self._has_role(interaction):
+            return
+        await interaction.response.defer()
+
+        # Apagar TODAS las protecciones
+        await db.update_settings(interaction.guild.id,
+            anti_raid=0,
+            anti_spam=0,
+            auto_mod=0,
+            anti_phishing=0,
+            logs_enabled=0
+        )
+
+        await interaction.followup.send(embed=create_embed(
+            "🛑 PROTECCION APAGADA",
+            "TODA la proteccion del bot ha sido **DESACTIVADA**",
+            COLOR_RED,
+            [
+                ("🚨 Anti-Raid", "❌ APAGADO", True),
+                ("🚫 Anti-Spam", "❌ APAGADO", True),
+                ("⚡ Anti-Flood", "❌ APAGADO", True),
+                ("🔗 Anti-Links", "❌ APAGADO", True),
+                ("🔗 Anti-Invite", "❌ APAGADO", True),
+                ("🎣 Anti-Phishing", "❌ APAGADO", True),
+                ("🚫 Anti-NSFW", "❌ APAGADO", True),
+                ("📢 Anti-Menciones", "❌ APAGADO", True),
+                ("🤖 Anti-Bots", "❌ APAGADO", True),
+                ("🔠 Auto-Mod", "❌ APAGADO", True),
+                ("🎭 Anti-RoleDelete", "❌ APAGADO", True),
+                ("👢 Anti-MassKick", "❌ APAGADO", True),
+                ("🔨 Anti-MassBan", "❌ APAGADO", True),
+                ("🔌 Anti-App", "❌ APAGADO", True),
+                ("📊 Logs", "❌ APAGADO", True),
+                ("", "", False),
+                ("⚠️ AVISO", "El servidor esta **SIN PROTECCION**. Usa `/encender` para activar de nuevo.", False),
+                ("👷 Desactivado por", interaction.user.mention, True),
+                ("🕐 Hora", "<t:" + str(int(datetime.utcnow().timestamp())) + ":F>", True),
+            ]))
+
+        # Log
+        await self._log(interaction.guild, "protections_disabled", interaction.user.id,
+                        details="Todas las protecciones desactivadas por " + str(interaction.user))
+
+    @app_commands.command(name="encender", description="Encender TODA la proteccion del bot")
+    async def encender_cmd(self, interaction: discord.Interaction):
+        if not self._has_role(interaction):
+            return
+        await interaction.response.defer()
+
+        # Encender TODAS las protecciones
+        await db.update_settings(interaction.guild.id,
+            anti_raid=1,
+            anti_spam=1,
+            auto_mod=1,
+            anti_phishing=1,
+            logs_enabled=1
+        )
+
+        await interaction.followup.send(embed=create_embed(
+            "🛡️ PROTECCION ACTIVADA",
+            "TODA la proteccion del bot ha sido **ACTIVADA**",
+            COLOR_GREEN,
+            [
+                ("🚨 Anti-Raid", "✅ ACTIVO", True),
+                ("🚫 Anti-Spam", "✅ ACTIVO", True),
+                ("⚡ Anti-Flood", "✅ ACTIVO", True),
+                ("🔗 Anti-Links", "✅ ACTIVO", True),
+                ("🔗 Anti-Invite", "✅ ACTIVO", True),
+                ("🎣 Anti-Phishing", "✅ ACTIVO", True),
+                ("🚫 Anti-NSFW", "✅ ACTIVO", True),
+                ("📢 Anti-Menciones", "✅ ACTIVO", True),
+                ("🤖 Anti-Bots", "✅ ACTIVO", True),
+                ("🔠 Auto-Mod", "✅ ACTIVO", True),
+                ("🎭 Anti-RoleDelete", "✅ ACTIVO", True),
+                ("👢 Anti-MassKick", "✅ ACTIVO", True),
+                ("🔨 Anti-MassBan", "✅ ACTIVO", True),
+                ("🔌 Anti-App", "✅ ACTIVO", True),
+                ("📊 Logs", "✅ ACTIVO", True),
+                ("", "", False),
+                ("✅ Estado", "El servidor esta **PROTEGIDO**", False),
+                ("👷 Activado por", interaction.user.mention, True),
+                ("🕐 Hora", "<t:" + str(int(datetime.utcnow().timestamp())) + ":F>", True),
+            ]))
+
+        # Log
+        await self._log(interaction.guild, "protections_enabled", interaction.user.id,
+                        details="Todas las protecciones activadas por " + str(interaction.user))
+
     @app_commands.command(name="raid", description="Configurar anti-raid")
     @app_commands.describe(threshold="Joins para activar", window="Segundos de ventana")
     async def raid_cmd(self, interaction: discord.Interaction, threshold: int = None, window: int = None):
