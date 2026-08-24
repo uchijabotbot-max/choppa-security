@@ -101,9 +101,9 @@ class Behavior(commands.Cog):
         # Detectar comportamiento sospechoso
         msg_count = len(self.message_times[gid][uid])
         if msg_count > 20:  # 20 mensajes en 1 minuto
-            score = self.suspicious_scores[guild.id][uid]
+            score = self.suspicious_scores[gid][uid]
             score += 15
-            self.suspicious_scores[guild.id][uid] = score
+            self.suspicious_scores[gid][uid] = score
 
             if score >= 50:
                 await self._alert_message_flood(message, msg_count, score)
