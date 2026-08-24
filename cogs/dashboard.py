@@ -105,7 +105,7 @@ class Dashboard(commands.Cog):
             COLOR_BLUE,
             fields=[
                 ("🤖 Bot", "Nombre: **" + self.bot.user.name + "**\nID: `" + str(self.bot.user.id) + "`\nVersion: " + BOT_VERSION, False),
-                (" uptime", uptime_str, True),
+                ("\u23f1\ufe0f Uptime", uptime_str, True),
                 ("📊 Uso", "Comandos usados: **" + str(self.commands_used) + "**\nAmenazas bloqueadas: **" + str(self.threats_blocked) + "**", False),
                 ("👥 Miembros", "**" + str(total_users) + "** en " + str(len(self.bot.guilds)) + " servidores", True),
                 ("📁 Canales", "**" + str(total_channels) + "** canales totales", True),

@@ -505,11 +505,14 @@ class Security(commands.Cog):
     async def _check_raid(self, member):
         gid = member.guild.id
         now = time.time()
+        settings = await db.get_settings(gid) or {}
+        threshold = settings.get("raid_threshold", RAID_JOIN_THRESHOLD)
+        window = RAID_TIME_WINDOW
 
         self.join_times[gid].append(now)
-        self.join_times[gid] = [t for t in self.join_times[gid] if now - t < RAID_TIME_WINDOW]
+        self.join_times[gid] = [t for t in self.join_times[gid] if now - t < window]
 
-        if len(self.join_times[gid]) >= RAID_JOIN_THRESHOLD:
+        if len(self.join_times[gid]) >= threshold:
             if gid in self.raid_cooldown and now - self.raid_cooldown[gid] < 60:
                 return
             self.raid_cooldown[gid] = now
