@@ -195,13 +195,6 @@ class Security(commands.Cog):
                                 await user.ban(reason="Mass kick: " + str(kick_count) + " kicks en " + str(MASS_KICK_TIME_WINDOW) + "s")
                             except discord.Forbidden:
                                 pass
-                            await self._alert_log(guild, "🔨 BAN - MASS KICK DETECTADO",
-                                user.mention + " fue **BANEADO** por expulsar **" + str(kick_count) + "** usuarios en " + str(MASS_KICK_TIME_WINDOW) + "s",
-                                COLOR_RED,
-                                [("👤 Responsable", user.mention + "\n`" + str(user.id) + "`", True),
-                                 ("🔢 Kicks", str(kick_count), True),
-                                 ("⏱️ Ventana", str(MASS_KICK_TIME_WINDOW) + "s", True),
-                                 ("⚡ Accion", "BAN automatico", True)])
                             await self._log(guild, "mass_kick_ban", user.id,
                                             details=str(kick_count) + " kicks en " + str(MASS_KICK_TIME_WINDOW) + "s")
                             break
@@ -240,13 +233,6 @@ class Security(commands.Cog):
                                 await user.ban(reason="Mass ban: " + str(ban_count) + " bans en " + str(MASS_BAN_TIME_WINDOW) + "s")
                             except discord.Forbidden:
                                 pass
-                            await self._alert_log(guild, "🔨 BAN - MASS BAN DETECTADO",
-                                user.mention + " fue **BANEADO** por banear **" + str(ban_count) + "** usuarios en " + str(MASS_BAN_TIME_WINDOW) + "s",
-                                COLOR_RED,
-                                [("👤 Responsable", user.mention + "\n`" + str(user.id) + "`", True),
-                                 ("🔢 Bans", str(ban_count), True),
-                                 ("⏱️ Ventana", str(MASS_BAN_TIME_WINDOW) + "s", True),
-                                 ("⚡ Accion", "BAN automatico", True)])
                             await self._log(guild, "mass_ban_ban", user.id,
                                             details=str(ban_count) + " bans en " + str(MASS_BAN_TIME_WINDOW) + "s")
                             break
