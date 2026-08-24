@@ -197,10 +197,21 @@ class Security(commands.Cog):
                                 pass
                             await self._log(guild, "mass_kick_ban", user.id,
                                             details=str(kick_count) + " kicks en " + str(MASS_KICK_TIME_WINDOW) + "s")
+                            await self._alert_log(guild, "🔨 BAN - MASS KICK",
+                                "**" + str(user) + "** fue BANEADO por expulsion masiva",
+                                COLOR_RED,
+                                [("👤 Usuario", str(user) + "\n`" + str(user.id) + "`", True),
+                                 ("📝 Razon", "Expulsion masiva - " + str(kick_count) + " kicks", False),
+                                 ("🔢 Kicks", str(kick_count), True),
+                                 ("⏱️ Ventana", str(MASS_KICK_TIME_WINDOW) + "s", True),
+                                 ("⚡ Accion", "BAN automatico", True),
+                                 ("🕐 Hora", "<t:" + str(int(datetime.utcnow().timestamp())) + ":F>", True)])
                             break
-                except discord.Forbidden:
+                except discord.ForForbidden:
                     pass
                 self._kick_times[guild.id] = []
+
+
 
         # Anti-Mass Ban
         if ANTI_MASS_BAN_ENABLED:
@@ -235,6 +246,15 @@ class Security(commands.Cog):
                                 pass
                             await self._log(guild, "mass_ban_ban", user.id,
                                             details=str(ban_count) + " bans en " + str(MASS_BAN_TIME_WINDOW) + "s")
+                            await self._alert_log(guild, "🔨 BAN - MASS BAN",
+                                "**" + str(user) + "** fue BANEADO por baneo masivo",
+                                COLOR_RED,
+                                [("👤 Usuario", str(user) + "\n`" + str(user.id) + "`", True),
+                                 ("📝 Razon", "Baneo masivo - " + str(ban_count) + " bans", False),
+                                 ("🔢 Bans", str(ban_count), True),
+                                 ("⏱️ Ventana", str(MASS_BAN_TIME_WINDOW) + "s", True),
+                                 ("⚡ Accion", "BAN automatico", True),
+                                 ("🕐 Hora", "<t:" + str(int(datetime.utcnow().timestamp())) + ":F>", True)])
                             break
                 except discord.Forbidden:
                     pass
@@ -448,8 +468,19 @@ class Security(commands.Cog):
                                 pass
                             try:
                                 await user.ban(reason="Mass channel create: " + str(count) + " canales")
-                            except discord.Forbidden:
+                            except discord.ForForbidden:
                                 pass
+                            await self._log(guild, "mass_channel_create_ban", user.id,
+                                            details=str(count) + " canales creados")
+                            await self._alert_log(guild, "🔨 BAN - MASS CHANNEL CREATE",
+                                "**" + str(user) + "** fue BANEADO por creacion masiva de canales",
+                                COLOR_RED,
+                                [("👤 Usuario", str(user) + "\n`" + str(user.id) + "`", True),
+                                 ("📝 Razon", "Creacion masiva de canales", False),
+                                 ("🔢 Canales", str(count), True),
+                                 ("⏱️ Ventana", str(MASS_CHANNEL_CREATE_TIME_WINDOW) + "s", True),
+                                 ("⚡ Accion", "BAN automatico", True),
+                                 ("🕐 Hora", "<t:" + str(int(datetime.utcnow().timestamp())) + ":F>", True)])
                             break
                 except discord.Forbidden:
                     pass
@@ -519,10 +550,21 @@ class Security(commands.Cog):
                         pass
                     try:
                         await user.ban(reason="Elimino el canal: " + channel.name)
-                    except discord.Forbidden:
+                    except discord.ForForbidden:
                         pass
+                    await self._log(guild, "channel_delete_ban", user.id,
+                                    details="Canal eliminado: " + channel.name)
+                    await self._alert_log(guild, "🔨 BAN - CANAL ELIMINADO",
+                        "**" + str(user) + "** fue BANEADO por eliminar el canal **" + channel.name + "**",
+                        COLOR_RED,
+                        [("👤 Usuario", str(user) + "\n`" + str(user.id) + "`", True),
+                         ("📍 Canal", channel.name, True),
+                         ("📋 ID Canal", str(channel.id), True),
+                         ("📝 Razon", "Eliminar canales no esta permitido", False),
+                         ("⚡ Accion", "BAN automatico", True),
+                         ("🕐 Hora", "<t:" + str(int(datetime.utcnow().timestamp())) + ":F>", True)])
                     break
-        except discord.Forbidden:
+        except discord.ForForbidden:
             pass
 
         await self._alert_log(guild, "🗑️ CANAL ELIMINADO",
