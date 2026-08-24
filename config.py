@@ -37,27 +37,35 @@ RAID_AUTO_BAN_ALL = True
 RAID_PING_ADMINS = True
 # Roles que pueden pingear durante raid
 RAID_ALERT_ROLES = ["Admin", "Moderator", "Security", "Administrador", "Moderador"]
+# Auto-lockdown durante raid (bloquea todos los canales)
+RAID_AUTO_LOCKDOWN = True
+# Auto-ban todos los joins sospechosos durante raid
+RAID_AUTO_BAN_ALL = True
+# Ping a admins durante raid
+RAID_PING_ADMINS = True
+# Roles que pueden pingear durante raid
+RAID_ALERT_ROLES = ["Admin", "Moderator", "Security", "Administrador", "Moderador"]
 
 # ── Anti-Spam / Flood ─────────────────────────────
-SPAM_THRESHOLD = 3            # 3 msgs en 5s → mute
-SPAM_TIME_WINDOW = 5          # 5 segundos
-FLOOD_THRESHOLD = 3           # 3 msgs en 2s → warn
-FLOOD_TIME_WINDOW = 2
-MUTE_DEFAULT_DURATION = 1800  # 30 minutos (antes 10)
+SPAM_THRESHOLD = 2            # 2 msgs en 3s → mute
+SPAM_TIME_WINDOW = 3          # 3 segundos
+FLOOD_THRESHOLD = 2           # 2 msgs en 1s → warn
+FLOOD_TIME_WINDOW = 1
+MUTE_DEFAULT_DURATION = 3600  # 60 minutos
 
 # ── Anti-Menciones ────────────────────────────────
-MAX_MENTIONS = 3              # 3+ menciones → eliminar + DM (antes 4)
+MAX_MENTIONS = 2              # 2+ menciones → eliminar + DM
 
 # ── Auto-Mod ──────────────────────────────────────
-MAX_CAPS_PERCENT = 50         # 50% mayusculas → delete (antes 70)
-MIN_CAPS_LENGTH = 8           # Minimo 8 chars (antes 10)
-MAX_EMOJI_COUNT = 7           # 7+ emojis → delete (antes 10)
+MAX_CAPS_PERCENT = 40         # 40% mayusculas → delete
+MIN_CAPS_LENGTH = 5           # Minimo 5 chars
+MAX_EMOJI_COUNT = 5           # 5+ emojis → delete
 BLOCK_ALL_LINKS = True
 
 # ── Warns (mas agresivo) ─────────────────────────
-WARN_MUTE_THRESHOLD = 1       # 1 warn → mute (antes 2)
-WARN_KICK_THRESHOLD = 2       # 2 warns → kick (antes 3)
-WARN_BAN_THRESHOLD = 3        # 3 warns → ban (antes 5)
+WARN_MUTE_THRESHOLD = 1       # 1 warn → mute
+WARN_KICK_THRESHOLD = 2       # 2 warns → kick
+WARN_BAN_THRESHOLD = 3        # 3 warns → ban
 
 # ── NSFW (lista expandida) ────────────────────────
 NSFW_KEYWORDS = [
@@ -118,7 +126,7 @@ BANNED_WORDS_BAN = [
 ]
 
 # Numero de palabras prohibidas para ban automatico
-BAD_WORD_BAN_THRESHOLD = 2   # 2 palabras malas = ban (antes 3)
+BAD_WORD_BAN_THRESHOLD = 1   # 1 palabra = ban inmediato
 
 # ── Nombres Sospechosos ──────────────────────────
 SUSPICIOUS_NAMES = [
@@ -127,18 +135,18 @@ SUSPICIOUS_NAMES = [
 ]
 
 # ── Anti-Nuke Ultra Agresivo ─────────────────────
-NUKE_CHANNEL_DELETE = 2       # 2 canales eliminados en 5s → nuke
-NUKE_CHANNEL_CREATE = 2       # 2 canales creados en 5s → nuke
-NUKE_ROLE_DELETE = 2          # 2 roles eliminados en 5s → nuke
-NUKE_ROLE_CREATE = 3          # 3 roles creados en 5s → nuke
-NUKE_TIME_WINDOW = 5
+NUKE_CHANNEL_DELETE = 1       # 1 canal eliminado en 3s → nuke
+NUKE_CHANNEL_CREATE = 2       # 2 canales creados en 3s → nuke
+NUKE_ROLE_DELETE = 1          # 1 rol eliminado en 3s → nuke
+NUKE_ROLE_CREATE = 2          # 2 roles creados en 3s → nuke
+NUKE_TIME_WINDOW = 3
 # Auto-lockdown durante nuke
 NUKE_AUTO_LOCKDOWN = True
 # Auto-ban al responsable de nuke
 NUKE_AUTO_BAN = True
 
 # ── Cuentas Nuevas ────────────────────────────────
-ALT_ACCOUNT_DAYS = 14         # 14 dias (antes 7) - mas estricto
+ALT_ACCOUNT_DAYS = 30         # 30 dias - ultra estricto
 
 # ── Anti-Invite (bloquear links de invitacion) ──
 ANTI_INVITE_ENABLED = True
@@ -154,56 +162,56 @@ INVITE_PATTERNS = [
 
 # ── Anti-Link Ultra Agresivo ─────────────────────
 # Umbral para ban por links (1 link = warn, 2 = ban)
-LINK_BAN_THRESHOLD = 2
+LINK_BAN_THRESHOLD = 1        # 1 link = ban inmediato
 
 # ── Anti-Mass Role Delete ──────────────────────
 ANTI_ROLE_DELETE_ENABLED = True
-ROLE_DELETE_THRESHOLD = 2     # 2 roles eliminados en 5s = nuke
-ROLE_DELETE_TIME_WINDOW = 5
+ROLE_DELETE_THRESHOLD = 1     # 1 rol eliminado en 3s = nuke
+ROLE_DELETE_TIME_WINDOW = 3
 
 # ── Anti-Mass Role Create ──────────────────────
 ANTI_ROLE_CREATE_ENABLED = True
-ROLE_CREATE_THRESHOLD = 3    # 3 roles creados en 5s = nuke
-ROLE_CREATE_TIME_WINDOW = 5
+ROLE_CREATE_THRESHOLD = 2    # 2 roles creados en 3s = nuke
+ROLE_CREATE_TIME_WINDOW = 3
 
 # ── Anti-Mass Kick ─────────────────────────────
 ANTI_MASS_KICK_ENABLED = True
-MASS_KICK_THRESHOLD = 2      # 2 kicks en 5s = ban
-MASS_KICK_TIME_WINDOW = 5
+MASS_KICK_THRESHOLD = 1      # 1 kick en 3s = ban
+MASS_KICK_TIME_WINDOW = 3
 
 # ── Anti-Mass Ban ──────────────────────────────
 ANTI_MASS_BAN_ENABLED = True
-MASS_BAN_THRESHOLD = 1       # 1 ban en 5s = sospechoso
-MASS_BAN_TIME_WINDOW = 5
+MASS_BAN_THRESHOLD = 1       # 1 ban en 3s = alerta
+MASS_BAN_TIME_WINDOW = 3
 
 # ── Anti-Mass Channel Create ───────────────────
 ANTI_MASS_CHANNEL_CREATE_ENABLED = True
-MASS_CHANNEL_CREATE_THRESHOLD = 2  # 2 canales creados en 5s
-MASS_CHANNEL_CREATE_TIME_WINDOW = 5
+MASS_CHANNEL_CREATE_THRESHOLD = 1  # 1 canal creado en 3s
+MASS_CHANNEL_CREATE_TIME_WINDOW = 3
 
 # ── Anti-Mass Channel Delete ───────────────────
 ANTI_MASS_CHANNEL_DELETE_ENABLED = True
-MASS_CHANNEL_DELETE_THRESHOLD = 2  # 2 canales eliminados en 5s
-MASS_CHANNEL_DELETE_TIME_WINDOW = 5
+MASS_CHANNEL_DELETE_THRESHOLD = 1  # 1 canal eliminado en 3s
+MASS_CHANNEL_DELETE_TIME_WINDOW = 3
 
 # ── Anti-Mass Unban ────────────────────────────
 ANTI_MASS_UNBAN_ENABLED = True
-MASS_UNBAN_THRESHOLD = 3     # 3 unbans en 5s = sospechoso
-MASS_UNBAN_TIME_WINDOW = 5
+MASS_UNBAN_THRESHOLD = 2     # 2 unbans en 3s = sospechoso
+MASS_UNBAN_TIME_WINDOW = 3
 
 # ── Anti-Voice Raid ────────────────────────────
 ANTI_VOICE_RAID_ENABLED = True
-VOICE_RAID_THRESHOLD = 5     # 5 joins a voz en 5s
-VOICE_RAID_TIME_WINDOW = 5
+VOICE_RAID_THRESHOLD = 3     # 3 joins a voz en 3s
+VOICE_RAID_TIME_WINDOW = 3
 
 # ── Backup Automatico ──────────────────────────
 BACKUP_ENABLED = True
 BACKUP_INTERVAL_HOURS = 2    # Cada 2 horas (antes 6) - mas frecuente
 
 # ── Deteccion de Acciones Anormales ──────────────
-# Si alguien hace 5+ acciones destructivas en 5s = kick
-ABNORMAL_ACTION_THRESHOLD = 5
-ABNORMAL_ACTION_WINDOW = 5  # 5 segundos
+# Si alguien hace 3+ acciones destructivas en 3s = kick
+ABNORMAL_ACTION_THRESHOLD = 3
+ABNORMAL_ACTION_WINDOW = 3  # 3 segundos
 # Acciones que cuentan: channel_delete, role_delete, channel_create,
 # role_create, permission_update, ban, kick
 
