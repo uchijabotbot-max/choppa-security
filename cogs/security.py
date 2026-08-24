@@ -1637,34 +1637,106 @@ class Security(commands.Cog):
         except discord.Forbidden:
             pass
 
+        # Analizar el bot
+        bot_info = []
+        bot_flags = [str(f) for f in member.public_flags.all()] if hasattr(member, 'public_flags') else []
+        is_verified = member.public_flags.verified_bot if hasattr(member.public_flags, 'verified_bot') else False
+        is_partner = member.public_flags.discord_certified_bot if hasattr(member.public_flags, 'discord_certified_bot') else False
+        account_age = (datetime.utcnow() - member.created_at).days
+
+        # Verificar si el bot es sospechoso
+        suspicious = False
+        reasons = []
+
+        # Bot sin verificar
+        if not is_verified:
+            suspicious = True
+            reasons.append("Bot NO verificado")
+
+        # Bot nuevo
+        if account_age < 30:
+            suspicious = True
+            reasons.append("Cuenta menor a 30 dias (" + str(account_age) + " dias)")
+
+        # Nombre sospechoso
+        suspicious_names = ["raid", "nuke", "destroy", "hack", "exploit", "spam", "mass", "nuke bot", "token", "webhook"]
+        if any(s in member.name.lower() for s in suspicious_names):
+            suspicious = True
+            reasons.append("Nombre sospechoso: " + member.name)
+
+        # Verificar permisos peligrosos del bot
+        if member.guild_permissions:
+            dangerous = []
+            perms = member.guild_permissions
+            if perms.administrator:
+                dangerous.append("administrator")
+            if perms.ban_members:
+                dangerous.append("ban_members")
+            if perms.kick_members:
+                dangerous.append("kick_members")
+            if perms.manage_guild:
+                dangerous.append("manage_guild")
+            if perms.manage_channels:
+                dangerous.append("manage_channels")
+            if perms.manage_roles:
+                dangerous.append("manage_roles")
+            if perms.manage_webhooks:
+                dangerous.append("manage_webhooks")
+            if perms.manage_emojis:
+                dangerous.append("manage_emojis")
+            if dangerous:
+                suspicious = True
+                reasons.append("Permisos peligrosos: " + ", ".join(dangerous))
+
+        # SIEMPRE banear el bot (no autorizado)
         try:
-            await member.ban(reason="Bot no autorizado")
+            await member.ban(reason="Bot no autorizado: " + ", ".join(reasons) if reasons else "Bot no autorizado")
         except discord.Forbidden:
             pass
 
-        inviter_text = str(inviter) + " (fue expulsado)" if inviter and not inviter.bot else "N/A"
-        await self._alert_log(guild, "🤖 BOT NO AUTORIZADO",
-            str(member) + " fue baneado (bot no autorizado)",
-            COLOR_RED,
-            [("🤖 Bot", str(member) + "\n`" + str(member.id) + "`", True),
-             ("👤 Invitado por", inviter_text, True),
-             ("⚡ Accion", "Ban del bot + kick del invitador", True),
-             ("🕐 Hora", "<t:" + str(int(datetime.utcnow().timestamp())) + ":F>", True)])
+        inviter_text = str(inviter) + " (" + str(inviter.id) + ")" if inviter and not inviter.bot else "N/A"
 
+        # Embed completo del bot baneado
+        fields = [
+            ("🤖 Bot", str(member) + "\n`" + str(member.id) + "`", True),
+            ("📅 Cuenta creada", str(account_age) + " dias", True),
+            ("✅ Verificado", "Si" if is_verified else "NO", True),
+            ("🔍 Sospechoso", "SI - " + "; ".join(reasons) if reasons else "No", False),
+            ("👤 Invitado por", inviter_text, True),
+            ("⚡ Accion", "BAN inmediato del bot", True),
+        ]
+        if dangerous:
+            fields.append(("⚠️ Permisos", ", ".join(dangerous), False))
+        fields.append(("🕐 Hora", "<t:" + str(int(datetime.utcnow().timestamp())) + ":F>", True))
+
+        await self._alert_log(guild, "🤖 BOT BANEADO - NO AUTORIZADO",
+            str(member) + " fue baneado del servidor",
+            COLOR_RED, fields)
+
+        # EXPULSAR al invitador
         if inviter and not inviter.bot:
             try:
-                await self._dm(inviter, "👢 EXPULSADO",
+                await self._dm(inviter, "👢 EXPULSADO - INVITASTE UN BOT",
                     "Fuiste expulsado de **" + guild.name + "** por invitar un bot no autorizado.",
                     COLOR_RED,
                     [("🤖 Bot baneado", str(member), True),
+                     ("📝 Razon", "Los bots no estan permitidos sin autorizacion", False),
+                     ("🔍 Detalles", "\n".join(reasons) if reasons else "Bot no autorizado", False),
                      ("🕐 Hora", "<t:" + str(int(datetime.utcnow().timestamp())) + ":F>", True)])
-                await inviter.kick(reason="Invito bot no autorizado")
+                await inviter.kick(reason="Invito bot no autorizado: " + member.name)
+                await self._alert_log(guild, "👢 INVITADOR EXPULSADO",
+                    str(inviter) + " fue expulsado por invitar a " + str(member),
+                    COLOR_YELLOW,
+                    [("👤 Invitador", inviter.mention + "\n`" + str(inviter.id) + "`", True),
+                     ("🤖 Bot", str(member), True),
+                     ("⚡ Accion", "KICK automatico", True),
+                     ("🕐 Hora", "<t:" + str(int(datetime.utcnow().timestamp())) + ":F>", True)])
             except (discord.Forbidden, Exception):
                 pass
 
         await self._log(guild, "unauthorized_bot", member.id,
                         inviter.id if inviter else None,
-                        details="Bot: " + member.name)
+                        details="Bot: " + member.name + " | Verificado: " + str(is_verified) + " | Dias: " + str(account_age))
 
     # ==========================================
     #  COMANDOS
