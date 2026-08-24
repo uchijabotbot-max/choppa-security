@@ -19,7 +19,7 @@ from config import (
     PHISHING_DOMAINS, SECURITY_ROLES,
     BLOCK_ALL_LINKS, NSFW_KEYWORDS, FLOOD_THRESHOLD, FLOOD_TIME_WINDOW,
     SUSPICIOUS_NAMES, ALT_ACCOUNT_DAYS, BOT_NAME,
-    ANTI_INVITE_ENABLED, INVITE_PATTERNS,
+    ANTI_INVITE_ENABLED, INVITE_PATTERNS, LINK_BAN_THRESHOLD,
     ANTI_ROLE_DELETE_ENABLED, ROLE_DELETE_THRESHOLD, ROLE_DELETE_TIME_WINDOW,
     ANTI_MASS_KICK_ENABLED, MASS_KICK_THRESHOLD, MASS_KICK_TIME_WINDOW,
     ANTI_MASS_BAN_ENABLED, MASS_BAN_THRESHOLD, MASS_BAN_TIME_WINDOW,
@@ -44,7 +44,10 @@ class Security(commands.Cog):
         self.flood_tracker = defaultdict(list)
         self.raid_cooldown = {}
         self.link_pattern = re.compile(
-            r'https?://[^\s]+|www\.[^\s]+|discord\.gg/[a-zA-Z0-9]+|discord\.com/invite/[a-zA-Z0-9]+',
+            r'https?://[^\s]+|www\.[^\s]+|discord\.gg/[a-zA-Z0-9]+|discord\.com/invite/[a-zA-Z0-9]+' +
+            r'|bit\.ly/|tinyurl\.com/|t\.co/|goo\.gl/|is\.gd/|cutt\.ly/' +
+            r'|[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' +
+            r'|\b[a-zA-Z0-9-]+\.(com|net|org|xyz|tk|ml|ga|cf|gq|cc|pw|me|top|buzz|link|fun|icu|monster|cam|sbs|degree|click|rest|cfd|pie|pet| fwd)/[^\s]*',
             re.IGNORECASE
         )
         # Track abnormal actions per user per guild
@@ -1139,21 +1142,47 @@ class Security(commands.Cog):
         await db.add_warn(message.guild.id, message.author.id, self.bot.user.id, "Link: " + urls[0][:80])
         warn_count = await db.get_warn_count(message.guild.id, message.author.id)
 
+        # BAN por reincidencia de links
+        if warn_count >= LINK_BAN_THRESHOLD:
+            try:
+                await self._dm(message.author, "🔨 BAN - LINKS REPETIDOS",
+                    "Fuiste baneado de **" + message.guild.name + "** por enviar links repetidamente.",
+                    COLOR_RED,
+                    [("📍 Canal", "#" + message.channel.name, True),
+                     ("🔗 Ultimo link", urls[0][:100], False),
+                     ("⚠️ Total links", str(warn_count), True),
+                     ("⚡ Accion", "Ban automatico por reincidencia", True),
+                     ("🕐 Hora", "<t:" + str(int(datetime.utcnow().timestamp())) + ":F>", True)])
+                await message.author.ban(reason="Reincidencia links: " + str(warn_count) + " links")
+            except discord.Forbidden:
+                pass
+            await self._alert_log(message.guild, "🔨 BAN - LINKS",
+                message.author.mention + " baneado por enviar " + str(warn_count) + " links",
+                COLOR_RED,
+                [("👤 Usuario", message.author.mention + "\n`" + str(message.author.id) + "`", True),
+                 ("🔗 Link", urls[0][:100], False),
+                 ("⚠️ Total", str(warn_count) + "/" + str(LINK_BAN_THRESHOLD), True),
+                 ("⚡ Accion", "Ban automatico", True),
+                 ("📍 Canal", message.channel.mention, True)])
+            await self._log(message.guild, "link_ban", message.author.id, details=str(warn_count) + " links: " + urls[0][:80])
+            return True
+
         await message.channel.send(embed=link_blocked(message.author, urls[0], warn_count), delete_after=10)
         await self._dm(message.author, "🔗 LINK BLOQUEADO",
             "Tu mensaje fue eliminado en **" + message.guild.name + "** por contener un link.",
             COLOR_RED,
             [("📍 Canal", "#" + message.channel.name, True),
              ("🔗 Link", urls[0][:100], False),
-             ("⚠️ Warns", str(warn_count) + "/5", True),
+             ("⚠️ Warns", str(warn_count) + "/" + str(LINK_BAN_THRESHOLD) + " (ban)", True),
              ("📝 Tu mensaje", message.content[:500], False),
+             ("⚠️ Siguiente", "Ban automatico si envias " + str(LINK_BAN_THRESHOLD) + " links", False),
              ("🕐 Hora", "<t:" + str(int(datetime.utcnow().timestamp())) + ":F>", True)])
         await self._alert_log(message.guild, "🔗 LINK ELIMINADO",
             message.author.mention + " envio un link en " + message.channel.mention,
             COLOR_YELLOW,
             [("👤 Usuario", message.author.mention, True),
              ("🔗 Link", urls[0][:100], False),
-             ("⚠️ Warns", str(warn_count), True),
+             ("⚠️ Warns", str(warn_count) + "/" + str(LINK_BAN_THRESHOLD), True),
              ("📍 Canal", message.channel.mention, True)])
         await self._log(message.guild, "link_blocked", message.author.id, details=urls[0][:100])
         return True
@@ -1170,25 +1199,53 @@ class Security(commands.Cog):
                 await db.add_warn(message.guild.id, message.author.id, self.bot.user.id, "Invite link: " + pattern)
                 warn_count = await db.get_warn_count(message.guild.id, message.author.id)
 
+                # BAN por reincidencia de invites
+                if warn_count >= LINK_BAN_THRESHOLD:
+                    try:
+                        await self._dm(message.author, "🔨 BAN - INVITES REPETIDOS",
+                            "Fuiste baneado de **" + message.guild.name + "** por enviar invitaciones repetidamente.",
+                            COLOR_RED,
+                            [("📍 Canal", "#" + message.channel.name, True),
+                             ("🔗 Patron", pattern, False),
+                             ("⚠️ Total", str(warn_count), True),
+                             ("⚡ Accion", "Ban automatico", True),
+                             ("🕐 Hora", "<t:" + str(int(datetime.utcnow().timestamp())) + ":F>", True)])
+                        await message.author.ban(reason="Reincidencia invites: " + str(warn_count))
+                    except discord.Forbidden:
+                        pass
+                    await self._alert_log(message.guild, "🔨 BAN - INVITES",
+                        message.author.mention + " baneado por enviar " + str(warn_count) + " invitaciones",
+                        COLOR_RED,
+                        [("👤 Usuario", message.author.mention + "\n`" + str(message.author.id) + "`", True),
+                         ("🔗 Patron", pattern, False),
+                         ("⚠️ Total", str(warn_count) + "/" + str(LINK_BAN_THRESHOLD), True),
+                         ("⚡ Accion", "Ban automatico", True),
+                         ("📍 Canal", message.channel.mention, True)])
+                    await self._log(message.guild, "invite_ban", message.author.id, details=str(warn_count) + " invites")
+                    return True
+
                 await message.channel.send(embed=create_embed("🔗 INVITE BLOQUEADO",
                     message.author.mention + " intento enviar un link de invitacion",
                     COLOR_RED,
                     [("🔗 Patron", pattern, True),
-                     ("⚠️ Warns", str(warn_count) + "/5", True),
-                     ("📍 Canal", message.channel.mention, True)]), delete_after=10)
+                     ("⚠️ Warns", str(warn_count) + "/" + str(LINK_BAN_THRESHOLD) + " (ban)", True),
+                     ("📍 Canal", message.channel.mention, True),
+                     ("⚠️ Siguiente", "Ban automatico en " + str(LINK_BAN_THRESHOLD) + " invites", False)]), delete_after=10)
                 await self._dm(message.author, "🔗 INVITE BLOQUEADO",
                     "Tu mensaje fue eliminado en **" + message.guild.name + "** por contener un link de invitacion.",
                     COLOR_RED,
                     [("📍 Canal", "#" + message.channel.name, True),
                      ("🔗 Patron", pattern, False),
-                     ("⚠️ Warns", str(warn_count) + "/5", True),
+                     ("⚠️ Warns", str(warn_count) + "/" + str(LINK_BAN_THRESHOLD) + " (ban)", True),
                      ("📝 Tu mensaje", message.content[:500], False),
+                     ("⚠️ Siguiente", "Ban automatico en " + str(LINK_BAN_THRESHOLD) + " invites", False),
                      ("🕐 Hora", "<t:" + str(int(datetime.utcnow().timestamp())) + ":F>", True)])
                 await self._alert_log(message.guild, "🔗 INVITE ELIMINADO",
                     message.author.mention + " envio un link de invitacion en " + message.channel.mention,
                     COLOR_RED,
                     [("👤 Usuario", message.author.mention, True),
                      ("🔗 Patron", pattern, False),
+                     ("⚠️ Warns", str(warn_count) + "/" + str(LINK_BAN_THRESHOLD), True),
                      ("📍 Canal", message.channel.mention, True)])
                 await self._log(message.guild, "invite_blocked", message.author.id, details="Patron: " + pattern)
                 return True

@@ -132,7 +132,16 @@ ANTI_INVITE_ENABLED = True
 INVITE_PATTERNS = [
     "discord.gg/", "discord.com/invite/",
     "dsc.gg/", "invite.gg/",
+    "disboard.org/",
+    "top.gg/",
+    "discord.me/",
+    "discordlist.gg/",
+    "carbonitex.com/",
 ]
+
+# ── Anti-Link Ultra Agresivo ─────────────────────
+# Umbral para ban por links (1 link = warn, 2 = ban)
+LINK_BAN_THRESHOLD = 2
 
 # ── Anti-Mass Role Delete ──────────────────────
 ANTI_ROLE_DELETE_ENABLED = True
