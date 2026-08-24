@@ -27,13 +27,13 @@ OWNER_BIO = "Creador de Choppa Security — Bot de seguridad más avanzado de Di
 SECURITY_ROLES = ["Admin", "Moderator", "Security", "Owner", "Administrador", "Moderador"]
 
 # ── Anti-Raid ─────────────────────────────────────
-RAID_JOIN_THRESHOLD = 3       # 3 joins en ventana → raid (antes 5)
-RAID_TIME_WINDOW = 8          # 8 segundos (antes 10)
+RAID_JOIN_THRESHOLD = 3       # 3 joins en 5s → raid
+RAID_TIME_WINDOW = 5          # 5 segundos
 
 # ── Anti-Spam / Flood ─────────────────────────────
-SPAM_THRESHOLD = 3            # 3 msgs en ventana → mute (antes 5)
-SPAM_TIME_WINDOW = 4          # 4 segundos (antes 5)
-FLOOD_THRESHOLD = 3           # 3 msgs en 2s → warn (antes 4 en 3s)
+SPAM_THRESHOLD = 3            # 3 msgs en 5s → mute
+SPAM_TIME_WINDOW = 5          # 5 segundos
+FLOOD_THRESHOLD = 3           # 3 msgs en 2s → warn
 FLOOD_TIME_WINDOW = 2
 MUTE_DEFAULT_DURATION = 1800  # 30 minutos (antes 10)
 
@@ -119,10 +119,10 @@ SUSPICIOUS_NAMES = [
 ]
 
 # ── Anti-Nuke ─────────────────────────────────────
-NUKE_CHANNEL_DELETE = 2       # 2 canales eliminados en 8s (antes 3 en 10s)
-NUKE_CHANNEL_CREATE = 3       # 3 canales creados en 8s (antes 5 en 10s)
-NUKE_ROLE_DELETE = 2          # 2 roles eliminados en 8s (antes 3 en 10s)
-NUKE_TIME_WINDOW = 8
+NUKE_CHANNEL_DELETE = 2       # 2 canales eliminados en 5s
+NUKE_CHANNEL_CREATE = 3       # 3 canales creados en 5s
+NUKE_ROLE_DELETE = 2          # 2 roles eliminados en 5s
+NUKE_TIME_WINDOW = 5
 
 # ── Cuentas Nuevas ────────────────────────────────
 ALT_ACCOUNT_DAYS = 14         # 14 dias (antes 7) - mas estricto
@@ -136,27 +136,27 @@ INVITE_PATTERNS = [
 
 # ── Anti-Mass Role Delete ──────────────────────
 ANTI_ROLE_DELETE_ENABLED = True
-ROLE_DELETE_THRESHOLD = 2     # 2 roles eliminados en 8s = nuke (antes 3 en 10s)
-ROLE_DELETE_TIME_WINDOW = 8
+ROLE_DELETE_THRESHOLD = 2     # 2 roles eliminados en 5s = nuke
+ROLE_DELETE_TIME_WINDOW = 5
 
 # ── Anti-Mass Kick ─────────────────────────────
 ANTI_MASS_KICK_ENABLED = True
-MASS_KICK_THRESHOLD = 2      # 2 kicks en 8s = ban (antes 3 en 10s)
-MASS_KICK_TIME_WINDOW = 8
+MASS_KICK_THRESHOLD = 2      # 2 kicks en 5s = ban
+MASS_KICK_TIME_WINDOW = 5
 
 # ── Anti-Mass Ban ──────────────────────────────
 ANTI_MASS_BAN_ENABLED = True
-MASS_BAN_THRESHOLD = 1       # 1 ban en 8s = sospechoso (antes 2 en 10s)
-MASS_BAN_TIME_WINDOW = 8
+MASS_BAN_THRESHOLD = 1       # 1 ban en 5s = sospechoso
+MASS_BAN_TIME_WINDOW = 5
 
 # ── Backup Automatico ──────────────────────────
 BACKUP_ENABLED = True
 BACKUP_INTERVAL_HOURS = 2    # Cada 2 horas (antes 6) - mas frecuente
 
 # ── Deteccion de Acciones Anormales ──────────────
-# Si alguien hace 5+ acciones destructivas en 10s = kick
+# Si alguien hace 5+ acciones destructivas en 5s = kick
 ABNORMAL_ACTION_THRESHOLD = 5
-ABNORMAL_ACTION_WINDOW = 10  # segundos
+ABNORMAL_ACTION_WINDOW = 5  # 5 segundos
 # Acciones que cuentan: channel_delete, role_delete, channel_create,
 # role_create, permission_update, ban, kick
 
