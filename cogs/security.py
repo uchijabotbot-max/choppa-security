@@ -1,7 +1,8 @@
 """
-cogs/security.py - Motor de Seguridad v6
+cogs/security.py - Motor de Seguridad v7
 Anti-Raid, Anti-Spam, Anti-Flood, Anti-Links, Anti-Phishing
 Anti-NSFW, Anti-Bots, Anti-Extension, Auto-Mod, Deteccion de Alts
+Anti-Aplicacion, Acciones Anormales, Logs Completos
 """
 import discord
 from discord.ext import commands
@@ -22,6 +23,8 @@ from config import (
     ANTI_ROLE_DELETE_ENABLED, ROLE_DELETE_THRESHOLD, ROLE_DELETE_TIME_WINDOW,
     ANTI_MASS_KICK_ENABLED, MASS_KICK_THRESHOLD, MASS_KICK_TIME_WINDOW,
     ANTI_MASS_BAN_ENABLED, MASS_BAN_THRESHOLD, MASS_BAN_TIME_WINDOW,
+    ANTI_APP_ENABLED, ALLOWED_APPS,
+    ABNORMAL_ACTION_THRESHOLD, ABNORMAL_ACTION_WINDOW,
     COLOR_RED, COLOR_GREEN, COLOR_YELLOW, COLOR_BLUE, COLOR_ORANGE
 )
 from utils.embeds import (
@@ -44,9 +47,15 @@ class Security(commands.Cog):
             r'https?://[^\s]+|www\.[^\s]+|discord\.gg/[a-zA-Z0-9]+|discord\.com/invite/[a-zA-Z0-9]+',
             re.IGNORECASE
         )
+        # Track abnormal actions per user per guild
+        self._abnormal_actions = defaultdict(lambda: defaultdict(list))
+        # Track channel creates for nuke detection
+        self._channel_create_times = defaultdict(list)
+        # Track integrations
+        self._known_integrations = {}
 
     # ==========================================
-    #  EVENTOS
+    #  EVENTOS - MIEMBROS
     # ==========================================
 
     @commands.Cog.listener()
@@ -55,6 +64,21 @@ class Security(commands.Cog):
         settings = await db.get_settings(guild.id) or {}
         await db.ensure_settings(guild.id)
 
+        # Log completo
+        account_age = (datetime.utcnow() - member.created_at).days
+        await self._log(guild, "member_join", member.id,
+                        details="Cuenta: " + str(account_age) + " dias | Bot: " + str(member.bot))
+
+        # Embed de log al canal
+        await self._alert_log(guild, "📥 MIEMBRO UNIDO",
+            member.mention + " se unio al servidor",
+            COLOR_GREEN,
+            [
+                ("👤 Usuario", str(member) + "\n`" + str(member.id) + "`", True),
+                ("📅 Cuenta creada", "<t:" + str(int(member.created_at.timestamp())) + ":R>\n(" + str(account_age) + " dias)", True),
+                ("👥 Total miembros", str(guild.member_count), True),
+            ])
+
         if member.bot:
             await self._handle_bot(member)
             return
@@ -62,23 +86,157 @@ class Security(commands.Cog):
         if settings.get("anti_raid", True):
             await self._check_raid(member)
 
-        account_age = (datetime.utcnow() - member.created_at).days
         if account_age < ALT_ACCOUNT_DAYS:
-            await self._alert_log(guild, "🔍 CUENTA NUEVA",
+            await self._alert_log(guild, "🔍 CUENTA NUEVA SOSPECHOSA",
                 member.mention + " tiene una cuenta de solo **" + str(account_age) + " dias** (posible alt)",
-                COLOR_ORANGE)
+                COLOR_ORANGE,
+                [
+                    ("👤 Usuario", member.mention + "\n`" + str(member.id) + "`", True),
+                    ("📅 Edad de cuenta", str(account_age) + " dias", True),
+                    ("⚠️ Umbral", str(ALT_ACCOUNT_DAYS) + " dias", True),
+                ])
 
         if await db.is_blacklisted(guild.id, member.id):
             try:
                 await member.ban(reason="Auto-ban: en blacklist")
                 await self._log(guild, "blacklist_ban", member.id, details="En blacklist")
+                await self._alert_log(guild, "🔨 BLACKLIST BAN",
+                    member.mention + " fue baneado automaticamente (en blacklist)",
+                    COLOR_RED,
+                    [("👤 Usuario", member.mention, True), ("📋 Razon", "En blacklist", False)])
             except discord.Forbidden:
                 pass
 
         if member.name.lower() in SUSPICIOUS_NAMES or member.display_name.lower() in SUSPICIOUS_NAMES:
             await self._alert_log(guild, "🔍 NOMBRE SOSPECHOSO",
                 member.mention + " tiene un nombre sospechoso: `" + member.name + "`",
-                COLOR_ORANGE)
+                COLOR_ORANGE,
+                [("👤 Usuario", member.mention, True), ("📝 Nombre", member.name, True)])
+
+    @commands.Cog.listener()
+    async def on_member_remove(self, member):
+        if not member.guild:
+            return
+        guild = member.guild
+
+        # Buscar razon del kick/ban en audit log
+        reason = "Desconocido"
+        moderator = None
+        try:
+            async for entry in guild.audit_logs(limit=5):
+                if entry.target.id == member.id:
+                    reason = entry.reason or "Sin razon"
+                    moderator = entry.user
+                    break
+        except discord.Forbidden:
+            pass
+
+        # Log completo al canal
+        mod_text = str(moderator) if moderator else "Desconocido"
+        await self._alert_log(guild, "📤 MIEMBRO SALIO",
+            member.mention + " salio del servidor",
+            COLOR_YELLOW,
+            [
+                ("👤 Usuario", str(member) + "\n`" + str(member.id) + "`", True),
+                ("📝 Razon", reason, True),
+                ("👮 Moderador", mod_text, True),
+                ("👥 Miembros restantes", str(guild.member_count - 1), True),
+            ])
+        await self._log(guild, "member_leave", member.id, details="Razon: " + reason)
+
+        # Anti-Mass Kick
+        if ANTI_MASS_KICK_ENABLED:
+            now = time.time()
+            if not hasattr(self, '_kick_times'):
+                self._kick_times = defaultdict(list)
+            self._kick_times[guild.id].append(now)
+            self._kick_times[guild.id] = [
+                t for t in self._kick_times[guild.id]
+                if now - t < MASS_KICK_TIME_WINDOW
+            ]
+            if len(self._kick_times[guild.id]) >= MASS_KICK_THRESHOLD:
+                try:
+                    async for entry in guild.audit_logs(limit=10, action=discord.AuditLogAction.kick):
+                        if not entry.user.bot:
+                            user = entry.user
+                            kick_count = len(self._kick_times[guild.id])
+                            try:
+                                dm = create_embed("🔨 BAN - MASS KICK",
+                                    "Fuiste baneado de **" + guild.name + "** por expulsar multiples usuarios",
+                                    COLOR_RED,
+                                    [("📝 Razon", "Expulsion masiva", False),
+                                     ("🔢 Usuarios expulsados", str(kick_count), True),
+                                     ("⏱️ Ventana", str(MASS_KICK_TIME_WINDOW) + "s", True),
+                                     ("🕐 Hora", "<t:" + str(int(datetime.utcnow().timestamp())) + ":F>", True)])
+                                await user.send(embed=dm)
+                            except discord.Forbidden:
+                                pass
+                            try:
+                                await user.ban(reason="Mass kick: " + str(kick_count) + " kicks en " + str(MASS_KICK_TIME_WINDOW) + "s")
+                            except discord.Forbidden:
+                                pass
+                            await self._alert_log(guild, "🔨 BAN - MASS KICK DETECTADO",
+                                user.mention + " fue **BANEADO** por expulsar **" + str(kick_count) + "** usuarios en " + str(MASS_KICK_TIME_WINDOW) + "s",
+                                COLOR_RED,
+                                [("👤 Responsable", user.mention + "\n`" + str(user.id) + "`", True),
+                                 ("🔢 Kicks", str(kick_count), True),
+                                 ("⏱️ Ventana", str(MASS_KICK_TIME_WINDOW) + "s", True),
+                                 ("⚡ Accion", "BAN automatico", True)])
+                            await self._log(guild, "mass_kick_ban", user.id,
+                                            details=str(kick_count) + " kicks en " + str(MASS_KICK_TIME_WINDOW) + "s")
+                            break
+                except discord.Forbidden:
+                    pass
+                self._kick_times[guild.id] = []
+
+        # Anti-Mass Ban
+        if ANTI_MASS_BAN_ENABLED:
+            now = time.time()
+            if not hasattr(self, '_ban_times'):
+                self._ban_times = defaultdict(list)
+            self._ban_times[guild.id].append(now)
+            self._ban_times[guild.id] = [
+                t for t in self._ban_times[guild.id]
+                if now - t < MASS_BAN_TIME_WINDOW
+            ]
+            if len(self._ban_times[guild.id]) >= MASS_BAN_THRESHOLD:
+                try:
+                    async for entry in guild.audit_logs(limit=10, action=discord.AuditLogAction.ban):
+                        if not entry.user.bot:
+                            user = entry.user
+                            ban_count = len(self._ban_times[guild.id])
+                            try:
+                                dm = create_embed("🔨 BAN - MASS BAN",
+                                    "Fuiste baneado de **" + guild.name + "** por banear multiples usuarios",
+                                    COLOR_RED,
+                                    [("📝 Razon", "Baneo masivo", False),
+                                     ("🔢 Usuarios baneados", str(ban_count), True),
+                                     ("⏱️ Ventana", str(MASS_BAN_TIME_WINDOW) + "s", True),
+                                     ("🕐 Hora", "<t:" + str(int(datetime.utcnow().timestamp())) + ":F>", True)])
+                                await user.send(embed=dm)
+                            except discord.Forbidden:
+                                pass
+                            try:
+                                await user.ban(reason="Mass ban: " + str(ban_count) + " bans en " + str(MASS_BAN_TIME_WINDOW) + "s")
+                            except discord.Forbidden:
+                                pass
+                            await self._alert_log(guild, "🔨 BAN - MASS BAN DETECTADO",
+                                user.mention + " fue **BANEADO** por banear **" + str(ban_count) + "** usuarios en " + str(MASS_BAN_TIME_WINDOW) + "s",
+                                COLOR_RED,
+                                [("👤 Responsable", user.mention + "\n`" + str(user.id) + "`", True),
+                                 ("🔢 Bans", str(ban_count), True),
+                                 ("⏱️ Ventana", str(MASS_BAN_TIME_WINDOW) + "s", True),
+                                 ("⚡ Accion", "BAN automatico", True)])
+                            await self._log(guild, "mass_ban_ban", user.id,
+                                            details=str(ban_count) + " bans en " + str(MASS_BAN_TIME_WINDOW) + "s")
+                            break
+                except discord.Forbidden:
+                    pass
+                self._ban_times[guild.id] = []
+
+    # ==========================================
+    #  EVENTOS - MENSAJES
+    # ==========================================
 
     @commands.Cog.listener()
     async def on_message(self, message):
@@ -108,7 +266,6 @@ class Security(commands.Cog):
             if await self._check_links(message):
                 return
 
-        # Anti-Invite
         if ANTI_INVITE_ENABLED:
             if await self._check_invite(message):
                 return
@@ -127,8 +284,36 @@ class Security(commands.Cog):
     async def on_message_delete(self, message):
         if message.author.bot or not message.guild:
             return
+        content_preview = message.content[:200] if message.content else "(sin texto)"
+        await self._alert_log(message.guild, "🗑️ MENSAJE ELIMINADO",
+            message.author.mention + " - mensaje eliminado en " + message.channel.mention,
+            COLOR_YELLOW,
+            [
+                ("👤 Autor", message.author.mention + "\n`" + str(message.author.id) + "`", True),
+                ("📍 Canal", message.channel.mention, True),
+                ("📝 Contenido", content_preview, False),
+                ("🕐 Hora", "<t:" + str(int(datetime.utcnow().timestamp())) + ":F>", True),
+            ])
         await self._log(message.guild, "message_delete", message.author.id,
-                        details="Canal: " + message.channel.mention)
+                        details="Canal: " + message.channel.mention + " | Msg: " + content_preview)
+
+    @commands.Cog.listener()
+    async def on_message_edit(self, before, after):
+        if before.author.bot or not before.guild:
+            return
+        if before.content == after.content:
+            return
+        await self._alert_log(before.guild, "✏️ MENSAJE EDITADO",
+            before.author.mention + " edito un mensaje en " + before.channel.mention,
+            COLOR_BLUE,
+            [
+                ("👤 Autor", before.author.mention, True),
+                ("📍 Canal", before.channel.mention, True),
+                ("📝 Antes", before.content[:500] if before.content else "(vacio)", False),
+                ("📝 Despues", after.content[:500] if after.content else "(vacio)", False),
+            ])
+        await self._log(before.guild, "message_edit", before.author.id,
+                        details="Canal: " + before.channel.name)
 
     @commands.Cog.listener()
     async def on_voice_state_update(self, member, before, after):
@@ -139,44 +324,217 @@ class Security(commands.Cog):
             action = "Conectado a " + after.channel.name
         elif before.channel and after.channel is None:
             action = "Desconectado de " + before.channel.name
+        elif before.channel != after.channel:
+            action = "Movido de " + before.channel.name + " a " + after.channel.name
+        elif before.self_mute != after.self_mute:
+            action = "Self-mute cambiado"
+        elif before.self_deaf != after.self_deaf:
+            action = "Self-deaf cambiado"
         if action:
+            await self._alert_log(member.guild, "🔊 VOICE UPDATE",
+                member.mention + " — " + action,
+                COLOR_BLUE,
+                [("👤 Usuario", member.mention, True),
+                 ("📍 Accion", action, True),
+                 ("🕐 Hora", "<t:" + str(int(datetime.utcnow().timestamp())) + ":F>", True)])
             await self._log(member.guild, "voice_state", member.id, details=action)
 
+    @commands.Cog.listener()
+    async def on_member_update(self, before, after):
+        if before.bot:
+            return
+        changes = []
+        if before.nick != after.nick:
+            changes.append("Nickname: " + str(before.nick) + " -> " + str(after.nick))
+        if before.roles != after.roles:
+            added_roles = [r.name for r in after.roles if r not in before.roles]
+            removed_roles = [r.name for r in before.roles if r not in after.roles]
+            if added_roles:
+                changes.append("Roles agregados: " + ", ".join(added_roles))
+            if removed_roles:
+                changes.append("Removidos: " + ", ".join(removed_roles))
+        if before.avatar != after.avatar:
+            changes.append("Avatar cambiado")
+        if changes:
+            changes_str = "\n".join(changes)
+            await self._alert_log(after.guild, "👤 MIEMBRO MODIFICADO",
+                after.mention + " fue modificado",
+                COLOR_BLUE,
+                [("👤 Usuario", after.mention + "\n`" + str(after.id) + "`", True),
+                 ("📝 Cambios", changes_str, False),
+                 ("🕐 Hora", "<t:" + str(int(datetime.utcnow().timestamp())) + ":F>", True)])
+            await self._log(after.guild, "member_update", after.id, details=changes_str)
+
     # ==========================================
-    #  ANTI-EXTENSION / ANTI-APLICACION
+    #  EVENTOS - CANALES
     # ==========================================
 
     @commands.Cog.listener()
-    async def on_guild_update(self, before, after):
-        guild = after
-        if before.premium_tier != after.premium_tier:
-            await self._alert_log(guild, "🚀 BOOST CAMBIADO",
-                "Nivel de boost cambiado de " + str(before.premium_tier) + " a " + str(after.premium_tier),
-                COLOR_BLUE)
-
-    @commands.Cog.listener()
-    async def on_webhooks_update(self, channel):
+    async def on_guild_channel_create(self, channel):
         guild = channel.guild
+        now = time.time()
+        creator = "Desconocido"
         try:
-            async for entry in guild.audit_logs(limit=5, action=discord.AuditLogAction.webhook_create):
-                if not entry.user.bot:
-                    ch_name = channel.name
-                    await self._alert_log(guild, "🔗 WEBHOOK CREADO",
-                        entry.user.mention + " creo un webhook en **" + ch_name + "**\nLos webhooks son monitoreados por seguridad",
-                        COLOR_RED)
-                    await self._log(guild, "webhook_create", entry.user.id, details="Canal: " + ch_name)
-                    try:
-                        dm = create_embed("🔗 WEBHOOK CREADO",
-                            "Creaste un webhook en **" + ch_name + "** en **" + guild.name + "**",
-                            COLOR_YELLOW,
-                            [("📍 Canal", channel.mention, True),
-                             ("⚠️ Nota", "Los webhooks son monitoreados por seguridad", False)])
-                        await entry.user.send(embed=dm)
-                    except discord.Forbidden:
-                        pass
-                    return
+            async for entry in guild.audit_logs(limit=5, action=discord.AuditLogAction.channel_create):
+                if entry.target.id == channel.id:
+                    creator = entry.user.mention if not entry.user.bot else "Bot: " + entry.user.name
+                    # Track for nuke detection
+                    self._channel_create_times[guild.id].append(now)
+                    self._channel_create_times[guild.id] = [
+                        t for t in self._channel_create_times[guild.id]
+                        if now - t < ABNORMAL_ACTION_WINDOW
+                    ]
+                    # Track abnormal actions
+                    if not entry.user.bot:
+                        uid = entry.user.id
+                        self._abnormal_actions[guild.id][uid].append(("channel_create", now))
+                        self._abnormal_actions[guild.id][uid] = [
+                            (a, t) for a, t in self._abnormal_actions[guild.id][uid]
+                            if now - t < ABNORMAL_ACTION_WINDOW
+                        ]
+                        if len(self._abnormal_actions[guild.id][uid]) >= ABNORMAL_ACTION_THRESHOLD:
+                            await self._punish_abnormal(entry.user, guild, "crear canales rapidamente")
+                    break
         except discord.Forbidden:
             pass
+
+        # Si se crean muchos canales = nuke
+        from config import NUKE_CHANNEL_CREATE
+        if len(self._channel_create_times[guild.id]) >= NUKE_CHANNEL_CREATE:
+            await self._alert_log(guild, "🚨 NUKE DETECTADO - CANALES CREADOS",
+                str(len(self._channel_create_times[guild.id])) + " canales creados en " + str(ABNORMAL_ACTION_WINDOW) + "s",
+                COLOR_RED,
+                [("🔢 Canales", str(len(self._channel_create_times[guild.id])), True),
+                 ("⏱️ Ventana", str(ABNORMAL_ACTION_WINDOW) + "s", True),
+                 ("⚡ Accion", "Auto-lockdown + investigacion", True)])
+            self._channel_create_times[guild.id] = []
+
+        await self._alert_log(guild, "📁 CANAL CREADO",
+            "Nuevo canal: **#" + channel.name + "**\nCreado por: " + str(creator),
+            COLOR_GREEN,
+            [("📍 Canal", channel.mention, True),
+             ("📋 Tipo", str(channel.type), True),
+             ("👷 Creado por", str(creator), True),
+             ("🕐 Hora", "<t:" + str(int(datetime.utcnow().timestamp())) + ":F>", True)])
+        await self._log(guild, "channel_create", details="Canal: #" + channel.name + " | Creado por: " + str(creator))
+
+    @commands.Cog.listener()
+    async def on_guild_channel_delete(self, channel):
+        guild = channel.guild
+        user_text = "Desconocido"
+        try:
+            async for entry in guild.audit_logs(limit=5, action=discord.AuditLogAction.channel_delete):
+                if entry.target.id == channel.id and not entry.user.bot:
+                    user = entry.user
+                    user_text = user.mention
+
+                    # Track abnormal actions
+                    uid = user.id
+                    now = time.time()
+                    self._abnormal_actions[guild.id][uid].append(("channel_delete", now))
+                    self._abnormal_actions[guild.id][uid] = [
+                        (a, t) for a, t in self._abnormal_actions[guild.id][uid]
+                        if now - t < ABNORMAL_ACTION_WINDOW
+                    ]
+                    if len(self._abnormal_actions[guild.id][uid]) >= ABNORMAL_ACTION_THRESHOLD:
+                        await self._punish_abnormal(user, guild, "eliminar canales rapidamente")
+
+                    # BAN INMEDIATO al admin que borra un canal
+                    try:
+                        dm = create_embed("🔨 BAN - CANAL ELIMINADO",
+                            "Fuiste baneado de **" + guild.name + "** por eliminar el canal **" + channel.name + "**",
+                            COLOR_RED,
+                            [("📍 Canal eliminado", channel.name, True),
+                             ("📋 ID del canal", str(channel.id), True),
+                             ("🕐 Hora", "<t:" + str(int(datetime.utcnow().timestamp())) + ":F>", True),
+                             ("📋 Razon", "Eliminar canales no esta permitido", False)])
+                        await user.send(embed=dm)
+                    except discord.Forbidden:
+                        pass
+                    try:
+                        await user.ban(reason="Elimino el canal: " + channel.name)
+                    except discord.Forbidden:
+                        pass
+                    break
+        except discord.Forbidden:
+            pass
+
+        await self._alert_log(guild, "🗑️ CANAL ELIMINADO",
+            "Canal **#" + channel.name + "** fue eliminado\nResponsable: " + user_text,
+            COLOR_RED,
+            [("📍 Canal", "#" + channel.name, True),
+             ("📋 ID", str(channel.id), True),
+             ("👷 Eliminado por", user_text, True),
+             ("🕐 Hora", "<t:" + str(int(datetime.utcnow().timestamp())) + ":F>", True)])
+        await self._log(guild, "channel_delete", details="Canal: #" + channel.name + " | Por: " + user_text)
+
+    @commands.Cog.listener()
+    async def on_guild_channel_update(self, before, after):
+        changes = []
+        if before.name != after.name:
+            changes.append("Nombre: " + before.name + " -> " + after.name)
+        if before.topic != after.topic:
+            changes.append("Tema modificado")
+        if before.nsfw != after.nsfw:
+            changes.append("NSFW: " + str(before.nsfw) + " -> " + str(after.nsfw))
+        if before.slowmode_delay != after.slowmode_delay:
+            changes.append("Slowmode: " + str(before.slowmode_delay) + "s -> " + str(after.slowmode_delay) + "s")
+        if before.category != after.category:
+            cat_before = before.category.name if before.category else "Ninguna"
+            cat_after = after.category.name if after.category else "Ninguna"
+            changes.append("Categoria: " + cat_before + " -> " + cat_after)
+        if not changes:
+            return
+
+        guild = before.guild
+        user_text = "Desconocido"
+        try:
+            async for entry in guild.audit_logs(limit=5, action=discord.AuditLogAction.channel_update):
+                if entry.target.id == after.id and not entry.user.bot:
+                    user_text = entry.user.mention
+                    user = entry.user
+                    changes_str = "\n".join(changes)
+
+                    # Track abnormal actions
+                    now = time.time()
+                    uid = user.id
+                    self._abnormal_actions[guild.id][uid].append(("channel_update", now))
+                    self._abnormal_actions[guild.id][uid] = [
+                        (a, t) for a, t in self._abnormal_actions[guild.id][uid]
+                        if now - t < ABNORMAL_ACTION_WINDOW
+                    ]
+                    if len(self._abnormal_actions[guild.id][uid]) >= ABNORMAL_ACTION_THRESHOLD:
+                        await self._punish_abnormal(user, guild, "modificar canales rapidamente")
+
+                    name_change = any("nombre" in c.lower() for c in changes)
+
+                    if name_change:
+                        try:
+                            dm = create_embed("✏️ CANAL EDITADO",
+                                "Editaste **" + after.name + "** en **" + guild.name + "**",
+                                COLOR_YELLOW,
+                                [("📍 Canal", after.mention, True),
+                                 ("📝 Cambios", changes_str, False),
+                                 ("🕐 Hora", "<t:" + str(int(datetime.utcnow().timestamp())) + ":F>", True)])
+                            await user.send(embed=dm)
+                        except discord.Forbidden:
+                            pass
+                    break
+        except discord.Forbidden:
+            pass
+
+        await self._alert_log(guild, "✏️ CANAL EDITADO",
+            "**#" + after.name + "** fue modificado por " + user_text,
+            COLOR_YELLOW,
+            [("📍 Canal", after.mention, True),
+             ("📝 Cambios", "\n".join(changes), False),
+             ("👷 Editado por", user_text, True),
+             ("🕐 Hora", "<t:" + str(int(datetime.utcnow().timestamp())) + ":F>", True)])
+        await self._log(guild, "channel_update", details="Canal: #" + after.name + " | Cambios: " + "\n".join(changes))
+
+    # ==========================================
+    #  EVENTOS - ROLES
+    # ==========================================
 
     @commands.Cog.listener()
     async def on_guild_role_create(self, role):
@@ -190,64 +548,58 @@ class Security(commands.Cog):
         for perm_name, perm_value in role.permissions:
             if perm_name in dangerous_perms and perm_value:
                 found.append(perm_name)
+
+        creator = "Desconocido"
         try:
             async for entry in guild.audit_logs(limit=5, action=discord.AuditLogAction.role_create):
                 if entry.target.id == role.id and not entry.user.bot:
+                    creator = entry.user.mention
+                    user = entry.user
                     role_name = role.name
+
+                    # Track abnormal actions
+                    now = time.time()
+                    uid = user.id
+                    self._abnormal_actions[guild.id][uid].append(("role_create", now))
+                    self._abnormal_actions[guild.id][uid] = [
+                        (a, t) for a, t in self._abnormal_actions[guild.id][uid]
+                        if now - t < ABNORMAL_ACTION_WINDOW
+                    ]
+                    if len(self._abnormal_actions[guild.id][uid]) >= ABNORMAL_ACTION_THRESHOLD:
+                        await self._punish_abnormal(user, guild, "crear roles rapidamente")
+
                     if found:
                         perm_str = ", ".join(found)
-                        await self._alert_log(guild, "🎭 ROL PELIGROSO CREADO",
-                            entry.user.mention + " creo el rol **" + role_name + "** con permisos peligrosos: " + perm_str,
-                            COLOR_RED)
                         try:
                             await role.delete(reason="Rol con permisos peligrosos bloqueados")
-                            try:
-                                dm = create_embed("🎭 ROL ELIMINADO",
-                                    "El rol **" + role_name + "** fue eliminado por permisos peligrosos",
-                                    COLOR_RED,
-                                    [("⚠️ Permisos", perm_str, False),
-                                     ("📍 Guild", guild.name, True)])
-                                await entry.user.send(embed=dm)
-                            except discord.Forbidden:
-                                pass
                         except discord.Forbidden:
                             pass
-                    else:
-                        await self._alert_log(guild, "🎭 ROL CREADO",
-                            entry.user.mention + " creo el rol **" + role_name + "**",
-                            COLOR_YELLOW)
-                    perm_detail = ", ".join(found) if found else "Ninguno"
-                    await self._log(guild, "role_create", entry.user.id,
-                                    details="Rol: " + role_name + " | Peligrosos: " + perm_detail)
-                    return
+                        try:
+                            dm = create_embed("🎭 ROL PELIGROSO ELIMINADO",
+                                "Creaste el rol **" + role_name + "** con permisos peligrosos en **" + guild.name + "**",
+                                COLOR_RED,
+                                [("⚠️ Permisos peligrosos", perm_str, False),
+                                 ("📍 Guild", guild.name, True),
+                                 ("🕐 Hora", "<t:" + str(int(datetime.utcnow().timestamp())) + ":F>", True)])
+                            await user.send(embed=dm)
+                        except discord.Forbidden:
+                            pass
+                    break
         except discord.Forbidden:
             pass
 
-    @commands.Cog.listener()
-    async def on_guild_emojis_update(self, guild, before, after):
-        added = [e for e in after if e not in before]
-        if added:
-            if len(added) >= 5:
-                try:
-                    async for entry in guild.audit_logs(limit=5, action=discord.AuditLogAction.emoji_create):
-                        if not entry.user.bot:
-                            count = len(added)
-                            await self._alert_log(guild, "😀 SPAM DE EMOJIS",
-                                entry.user.mention + " agrego " + str(count) + " emojis de una vez",
-                                COLOR_RED)
-                            await self._log(guild, "emoji_spam", entry.user.id,
-                                            details=str(count) + " emojis agregados")
-                            return
-                except discord.Forbidden:
-                    pass
-            count_added = len(added)
-            await self._alert_log(guild, "😀 EMOJIS AGREGADOS",
-                "Se agregaron **" + str(count_added) + "** emojis nuevos",
-                COLOR_YELLOW)
-
-    # ==========================================
-    #  ANTI-INVITE (bloquear invitaciones)
-    # ==========================================
+        perm_detail = ", ".join(found) if found else "Ninguno"
+        danger_text = " **PELIGROSO**" if found else ""
+        await self._alert_log(guild, "🎭 ROL CREADO" + danger_text,
+            "Nuevo rol: **" + role.name + "**\nCreado por: " + str(creator),
+            COLOR_RED if found else COLOR_GREEN,
+            [("🎭 Rol", role.mention, True),
+             ("👷 Creado por", str(creator), True),
+             ("🔑 Permisos peligrosos", perm_detail, True),
+             ("🎨 Color", str(role.color), True),
+             ("📋 ID", "`" + str(role.id) + "`", True),
+             ("🕐 Hora", "<t:" + str(int(datetime.utcnow().timestamp())) + ":F>", True)])
+        await self._log(guild, "role_create", details="Rol: " + role.name + " | Peligrosos: " + perm_detail)
 
     @commands.Cog.listener()
     async def on_guild_role_delete(self, role):
@@ -255,7 +607,29 @@ class Security(commands.Cog):
             return
         guild = role.guild
         now = time.time()
-        # Track role deletes
+
+        # Log who deleted it
+        deleter = "Desconocido"
+        try:
+            async for entry in guild.audit_logs(limit=5, action=discord.AuditLogAction.role_delete):
+                if entry.target.id == role.id and not entry.user.bot:
+                    deleter = entry.user.mention
+                    user = entry.user
+
+                    # Track abnormal actions
+                    uid = user.id
+                    self._abnormal_actions[guild.id][uid].append(("role_delete", now))
+                    self._abnormal_actions[guild.id][uid] = [
+                        (a, t) for a, t in self._abnormal_actions[guild.id][uid]
+                        if now - t < ABNORMAL_ACTION_WINDOW
+                    ]
+                    if len(self._abnormal_actions[guild.id][uid]) >= ABNORMAL_ACTION_THRESHOLD:
+                        await self._punish_abnormal(user, guild, "eliminar roles rapidamente")
+                    break
+        except discord.Forbidden:
+            pass
+
+        # Track role deletes for nuke detection
         if not hasattr(self, '_role_delete_times'):
             self._role_delete_times = defaultdict(list)
         self._role_delete_times[guild.id].append(now)
@@ -264,239 +638,336 @@ class Security(commands.Cog):
             if now - t < ROLE_DELETE_TIME_WINDOW
         ]
         if len(self._role_delete_times[guild.id]) >= ROLE_DELETE_THRESHOLD:
-            # Nuke detectado - buscar al responsable
             try:
                 async for entry in guild.audit_logs(limit=10, action=discord.AuditLogAction.role_delete):
                     if not entry.user.bot:
                         user = entry.user
+                        count = len(self._role_delete_times[guild.id])
                         try:
                             dm = create_embed("🔨 BAN - MASS ROLE DELETE",
                                 "Fuiste baneado de **" + guild.name + "** por eliminar multiples roles",
                                 COLOR_RED,
                                 [("📝 Razon", "Eliminacion masiva de roles", False),
-                                 ("🔢 Roles eliminados", str(len(self._role_delete_times[guild.id])), True)])
+                                 ("🔢 Roles eliminados", str(count), True),
+                                 ("⏱️ Ventana", str(ROLE_DELETE_TIME_WINDOW) + "s", True),
+                                 ("🕐 Hora", "<t:" + str(int(datetime.utcnow().timestamp())) + ":F>", True)])
                             await user.send(embed=dm)
                         except discord.Forbidden:
                             pass
                         try:
-                            await user.ban(reason="Mass role delete: " + str(len(self._role_delete_times[guild.id])) + " roles")
+                            await user.ban(reason="Mass role delete: " + str(count) + " roles")
                         except discord.Forbidden:
                             pass
                         await self._alert_log(guild, "🔨 BAN - MASS ROLE DELETE",
-                            user.mention + " fue baneado por eliminar multiples roles",
-                            COLOR_RED)
+                            user.mention + " fue **BANEADO** por eliminar **" + str(count) + "** roles en " + str(ROLE_DELETE_TIME_WINDOW) + "s",
+                            COLOR_RED,
+                            [("👤 Responsable", user.mention + "\n`" + str(user.id) + "`", True),
+                             ("🔢 Roles eliminados", str(count), True),
+                             ("⏱️ Ventana", str(ROLE_DELETE_TIME_WINDOW) + "s", True),
+                             ("⚡ Accion", "BAN automatico", True)])
                         await self._log(guild, "mass_role_delete_ban", user.id,
-                                        details=str(len(self._role_delete_times[guild.id])) + " roles eliminados")
+                                        details=str(count) + " roles eliminados")
                         break
             except discord.Forbidden:
                 pass
             self._role_delete_times[guild.id] = []
 
-    @commands.Cog.listener()
-    async def on_member_remove(self, member):
-        if not member.guild:
-            return
-        guild = member.guild
-
-        # Log member leave
-        await self._log(guild, "member_leave", member.id)
-
-        # Anti-Mass Kick
-        if ANTI_MASS_KICK_ENABLED:
-            now = time.time()
-            if not hasattr(self, '_kick_times'):
-                self._kick_times = defaultdict(list)
-            self._kick_times[guild.id].append(now)
-            self._kick_times[guild.id] = [
-                t for t in self._kick_times[guild.id]
-                if now - t < MASS_KICK_TIME_WINDOW
-            ]
-            if len(self._kick_times[guild.id]) >= MASS_KICK_THRESHOLD:
-                try:
-                    async for entry in guild.audit_logs(limit=10, action=discord.AuditLogAction.kick):
-                        if not entry.user.bot:
-                            user = entry.user
-                            try:
-                                dm = create_embed("🔨 BAN - MASS KICK",
-                                    "Fuiste baneado de **" + guild.name + "** por expulsar multiples usuarios",
-                                    COLOR_RED,
-                                    [("📝 Razon", "Expulsion masiva", False),
-                                     ("🔢 Usuarios expulsados", str(len(self._kick_times[guild.id])), True)])
-                                await user.send(embed=dm)
-                            except discord.Forbidden:
-                                pass
-                            try:
-                                await user.ban(reason="Mass kick: " + str(len(self._kick_times[guild.id])) + " kicks")
-                            except discord.Forbidden:
-                                pass
-                            await self._alert_log(guild, "🔨 BAN - MASS KICK",
-                                user.mention + " fue baneado por expulsar multiples usuarios",
-                                COLOR_RED)
-                            await self._log(guild, "mass_kick_ban", user.id,
-                                            details=str(len(self._kick_times[guild.id])) + " kicks")
-                            break
-                except discord.Forbidden:
-                    pass
-                self._kick_times[guild.id] = []
-
-        # Anti-Mass Ban
-        if ANTI_MASS_BAN_ENABLED:
-            now = time.time()
-            if not hasattr(self, '_ban_times'):
-                self._ban_times = defaultdict(list)
-            self._ban_times[guild.id].append(now)
-            self._ban_times[guild.id] = [
-                t for t in self._ban_times[guild.id]
-                if now - t < MASS_BAN_TIME_WINDOW
-            ]
-            if len(self._ban_times[guild.id]) >= MASS_BAN_THRESHOLD:
-                try:
-                    async for entry in guild.audit_logs(limit=10, action=discord.AuditLogAction.ban):
-                        if not entry.user.bot:
-                            user = entry.user
-                            try:
-                                dm = create_embed("🔨 BAN - MASS BAN",
-                                    "Fuiste baneado de **" + guild.name + "** por banear multiples usuarios",
-                                    COLOR_RED,
-                                    [("📝 Razon", "baneo masivo", False),
-                                     ("🔢 Usuarios baneados", str(len(self._ban_times[guild.id])), True)])
-                                await user.send(embed=dm)
-                            except discord.Forbidden:
-                                pass
-                            try:
-                                await user.ban(reason="Mass ban: " + str(len(self._ban_times[guild.id])) + " bans")
-                            except discord.Forbidden:
-                                pass
-                            await self._alert_log(guild, "🔨 BAN - MASS BAN",
-                                user.mention + " fue baneado por banear multiples usuarios",
-                                COLOR_RED)
-                            await self._log(guild, "mass_ban_ban", user.id,
-                                            details=str(len(self._ban_times[guild.id])) + " bans")
-                            break
-                except discord.Forbidden:
-                    pass
-                self._ban_times[guild.id] = []
-
-    # ==========================================
-    #  MONITOREO DE ADMINS
-    # ==========================================
+        await self._alert_log(guild, "🎭 ROL ELIMINADO",
+            "Rol **" + role.name + "** fue eliminado\nResponsable: " + str(deleter),
+            COLOR_RED,
+            [("🎭 Rol", role.name, True),
+             ("👷 Eliminado por", str(deleter), True),
+             ("📋 ID", "`" + str(role.id) + "`", True),
+             ("🕐 Hora", "<t:" + str(int(datetime.utcnow().timestamp())) + ":F>", True)])
+        await self._log(guild, "role_delete", details="Rol: " + role.name + " | Por: " + str(deleter))
 
     @commands.Cog.listener()
-    async def on_guild_channel_delete(self, channel):
-        guild = channel.guild
-        try:
-            async for entry in guild.audit_logs(limit=5, action=discord.AuditLogAction.channel_delete):
-                if entry.target.id == channel.id and not entry.user.bot:
-                    ch_name = channel.name
-                    user = entry.user
-
-                    # BAN INMEDIATO al admin que borra un canal
-                    try:
-                        dm = create_embed("🔨 BAN - CANAL ELIMINADO",
-                            "Fuiste baneado de **" + guild.name + "** por eliminar el canal **" + ch_name + "**",
-                            COLOR_RED,
-                            [("📍 Canal eliminado", ch_name, True),
-                             ("📋 ID del canal", str(channel.id), True),
-                             ("🕐 Hora", "<t:" + str(int(datetime.utcnow().timestamp())) + ":F>", True),
-                             ("📋 Razon", "Eliminar canales no esta permitido", False)])
-                        await user.send(embed=dm)
-                    except discord.Forbidden:
-                        pass
-
-                    try:
-                        await user.ban(reason="Elimino el canal: " + ch_name)
-                    except discord.Forbidden:
-                        pass
-
-                    await self._alert_log(guild, "🔨 ADMIN BANEADO - CANAL ELIMINADO",
-                        user.mention + " fue **BANEADO** por eliminar el canal **" + ch_name + "**",
-                        COLOR_RED)
-                    await self._log(guild, "admin_ban_channel_delete", user.id,
-                                    details="Canal eliminado: " + ch_name)
-                    return
-        except discord.Forbidden:
-            pass
-
-    @commands.Cog.listener()
-    async def on_guild_channel_update(self, before, after):
+    async def on_guild_role_update(self, before, after):
         changes = []
         if before.name != after.name:
             changes.append("Nombre: " + before.name + " -> " + after.name)
-        if before.topic != after.topic:
-            changes.append("Tema modificado")
+        if before.color != after.color:
+            changes.append("Color cambiado")
+        if before.permissions != after.permissions:
+            new_perms = [p for p, v in after.permissions if v and not before.permissions[p]]
+            lost_perms = [p for p, v in before.permissions if v and not after.permissions[p]]
+            if new_perms:
+                changes.append("Permisos agregados: " + ", ".join(new_perms))
+            if lost_perms:
+                changes.append("Permisos removidos: " + ", ".join(lost_perms))
         if not changes:
             return
 
-        guild = before.guild
+        changes_str = "\n".join(changes)
+        updater = "Desconocido"
         try:
-            async for entry in guild.audit_logs(limit=5, action=discord.AuditLogAction.channel_update):
+            async for entry in guild.audit_logs(limit=5, action=discord.AuditLogAction.role_update):
                 if entry.target.id == after.id and not entry.user.bot:
-                    changes_str = "\n".join(changes)
-                    user = entry.user
+                    updater = entry.user.mention
+                    break
+        except discord.Forbidden:
+            pass
 
-                    # Si se modificaron permisos = BAN
-                    perm_change = any("permisos" in c.lower() or "permisos" in c.lower() for c in changes)
-                    name_change = any("nombre" in c.lower() for c in changes)
+        await self._alert_log(after.guild, "🎭 ROL MODIFICADO",
+            "Rol **" + after.name + "** fue modificado por " + str(updater),
+            COLOR_YELLOW,
+            [("🎭 Rol", after.mention, True),
+             ("📝 Cambios", changes_str, False),
+             ("👷 Modificado por", str(updater), True),
+             ("🕐 Hora", "<t:" + str(int(datetime.utcnow().timestamp())) + ":F>", True)])
+        await self._log(after.guild, "role_update", details="Rol: " + after.name + " | " + changes_str)
 
-                    if perm_change:
-                        # BAN por modificar permisos de canal
-                        try:
-                            dm = create_embed("🔨 BAN - PERMISOS MODIFICADOS",
-                                "Fuiste baneado de **" + guild.name + "** por modificar permisos del canal **" + after.name + "**",
-                                COLOR_RED,
-                                [("📍 Canal", after.name, True),
-                                 ("📝 Cambios", changes_str, False),
-                                 ("📋 Razon", "Modificar permisos no esta permitido", False)])
-                            await user.send(embed=dm)
-                        except discord.Forbidden:
-                            pass
-                        try:
-                            await user.ban(reason="Modifico permisos del canal: " + after.name)
-                        except discord.Forbidden:
-                            pass
-                        await self._alert_log(guild, "🔨 ADMIN BANEADO - PERMISOS",
-                            user.mention + " fue **BANEADO** por modificar permisos de **" + after.name + "**",
-                            COLOR_RED)
-                        await self._log(guild, "admin_ban_channel_perms", user.id,
-                                        details="Canal: " + after.name + " | Cambios: " + changes_str)
-                    elif name_change:
-                        # Solo log para cambio de nombre
-                        try:
-                            dm = create_embed("✏️ CANAL EDITADO",
-                                "Editaste **" + after.name + "** en **" + guild.name + "**",
-                                COLOR_YELLOW,
-                                [("📝 Cambios", changes_str, False)])
-                            await user.send(embed=dm)
-                        except discord.Forbidden:
-                            pass
-                        await self._alert_log(guild, "⚠️ CANAL EDITADO",
-                            user.mention + " edito **" + after.name + "**\n" + changes_str,
-                            COLOR_YELLOW)
-                    return
+    # ==========================================
+    #  EVENTOS - EMOJIS
+    # ==========================================
+
+    @commands.Cog.listener()
+    async def on_guild_emojis_update(self, guild, before, after):
+        added = [e for e in after if e not in before]
+        removed = [e for e in before if e not in after]
+
+        if added:
+            creator = "Desconocido"
+            try:
+                async for entry in guild.audit_logs(limit=5, action=discord.AuditLogAction.emoji_create):
+                    if not entry.user.bot:
+                        creator = entry.user.mention
+                        break
+            except discord.Forbidden:
+                pass
+
+            emoji_names = ", ".join([e.name for e in added[:10]])
+            if len(added) >= 5:
+                await self._alert_log(guild, "😀 SPAM DE EMOJIS",
+                    str(len(added)) + " emojis agregados de una vez por " + str(creator),
+                    COLOR_RED,
+                    [("😀 Emojis", emoji_names, False),
+                     ("🔢 Total", str(len(added)), True),
+                     ("👷 Agregados por", str(creator), True)])
+            else:
+                await self._alert_log(guild, "😀 EMOJIS AGREGADOS",
+                    str(len(added)) + " emojis nuevos: " + emoji_names,
+                    COLOR_YELLOW,
+                    [("😀 Emojis", emoji_names, False),
+                     ("🔢 Total", str(len(added)), True),
+                     ("👷 Agregados por", str(creator), True)])
+            await self._log(guild, "emoji_add", details=str(len(added)) + " emojis: " + emoji_names)
+
+        if removed:
+            emoji_names = ", ".join([e.name for e in removed[:10]])
+            await self._alert_log(guild, "😀 EMOJIS ELIMINADOS",
+                str(len(removed)) + " emojis eliminados",
+                COLOR_YELLOW,
+                [("😀 Emojis", emoji_names, False),
+                 ("🔢 Total", str(len(removed)), True)])
+            await self._log(guild, "emoji_remove", details=str(len(removed)) + " emojis: " + emoji_names)
+
+    # ==========================================
+    #  EVENTOS - WEBHOOKS
+    # ==========================================
+
+    @commands.Cog.listener()
+    async def on_webhooks_update(self, channel):
+        guild = channel.guild
+        try:
+            async for entry in guild.audit_logs(limit=5, action=discord.AuditLogAction.webhook_create):
+                if not entry.user.bot:
+                    ch_name = channel.name
+                    try:
+                        dm = create_embed("🔗 WEBHOOK CREADO",
+                            "Creaste un webhook en **" + ch_name + "** en **" + guild.name + "**",
+                            COLOR_YELLOW,
+                            [("📍 Canal", channel.mention, True),
+                             ("⚠️ Nota", "Los webhooks son monitoreados por seguridad", False),
+                             ("🕐 Hora", "<t:" + str(int(datetime.utcnow().timestamp())) + ":F>", True)])
+                        await entry.user.send(embed=dm)
+                    except discord.Forbidden:
+                        pass
+                    break
+        except discord.Forbidden:
+            pass
+
+        await self._alert_log(guild, "🔗 WEBHOOK ACTUALIZADO",
+            "Webhooks actualizados en " + channel.mention,
+            COLOR_ORANGE,
+            [("📍 Canal", channel.mention, True),
+             ("🕐 Hora", "<t:" + str(int(datetime.utcnow().timestamp())) + ":F>", True)])
+        await self._log(guild, "webhook_update", details="Canal: " + channel.name)
+
+    # ==========================================
+    #  EVENTOS - INTEGRACIONES / APLICACIONES
+    # ==========================================
+
+    @commands.Cog.listener()
+    async def on_guild_integrations_update(self, guild):
+        if not ANTI_APP_ENABLED:
+            return
+        try:
+            integrations = await guild.integrations()
+            for integration in integrations:
+                app_name = integration.name
+                app_id = str(integration.id) if hasattr(integration, 'id') else "N/A"
+                app_type = type(integration).__name__
+
+                # Check if it's in the allowed list
+                if ALLOWED_APPS and app_name in ALLOWED_APPS:
+                    continue
+
+                # Log the integration
+                await self._alert_log(guild, "🔌 APLICACION DETECTADA",
+                    "Nueva aplicacion/integracion detectada: **" + app_name + "**",
+                    COLOR_ORANGE,
+                    [("📦 Aplicacion", app_name, True),
+                     ("📋 ID", "`" + app_id + "`", True),
+                     ("📋 Tipo", app_type, True),
+                     ("📍 Servidor", guild.name, True),
+                     ("🕐 Hora", "<t:" + str(int(datetime.utcnow().timestamp())) + ":F>", True),
+                     ("⚠️ Nota", "Monitoreada por seguridad", False)])
+                await self._log(guild, "app_detected", details="App: " + app_name + " | Tipo: " + app_type)
         except discord.Forbidden:
             pass
 
     @commands.Cog.listener()
+    async def on_guild_update(self, before, after):
+        changes = []
+        if before.name != after.name:
+            changes.append("Nombre: " + before.name + " -> " + after.name)
+        if before.icon != after.icon:
+            changes.append("Icono cambiado")
+        if before.splash != after.splash:
+            changes.append("Splash cambiado")
+        if before.premium_tier != after.premium_tier:
+            changes.append("Boost: Nivel " + str(before.premium_tier) + " -> " + str(after.premium_tier))
+        if before.verification_level != after.verification_level:
+            changes.append("Verificacion: " + str(before.verification_level) + " -> " + str(after.verification_level))
+        if before.explicit_content_filter != after.explicit_content_filter:
+            changes.append("Filtro de contenido cambiado")
+        if before.default_notifications != after.default_notifications:
+            changes.append("Notificaciones por defecto cambiadas")
+
+        if not changes:
+            return
+
+        changes_str = "\n".join(changes)
+        await self._alert_log(after.guild, "⚙️ SERVIDOR MODIFICADO",
+            "Configuracion del servidor fue modificada",
+            COLOR_ORANGE,
+            [("📝 Cambios", changes_str, False),
+             ("🕐 Hora", "<t:" + str(int(datetime.utcnow().timestamp())) + ":F>", True)])
+        await self._log(after.guild, "guild_update", details=changes_str)
+
+    # ==========================================
+    #  MONITOREO DE BANS
+    # ==========================================
+
+    @commands.Cog.listener()
     async def on_member_ban(self, guild, user):
+        moderator = "Desconocido"
+        reason = "Sin razon"
         try:
             async for entry in guild.audit_logs(limit=5, action=discord.AuditLogAction.ban):
                 if entry.target.id == user.id and not entry.user.bot:
+                    moderator = entry.user.mention
                     reason = entry.reason or "Sin razon"
-                    await self._alert_log(guild, "🔨 BAN EJECUTADO",
-                        entry.user.mention + " baneo a **" + str(user) + "**\nRazon: " + reason,
-                        COLOR_RED)
-                    try:
-                        dm = create_embed("🔨 HAS SIDO BANEADO",
-                            "Fuiste baneado de **" + guild.name + "**",
-                            COLOR_RED,
-                            [("📝 Razon", reason, False),
-                             ("👮 Moderador", str(entry.user), True)])
-                        await user.send(embed=dm)
-                    except discord.Forbidden:
-                        pass
-                    return
+
+                    # Track abnormal actions
+                    uid = entry.user.id
+                    now = time.time()
+                    self._abnormal_actions[guild.id][uid].append(("ban", now))
+                    self._abnormal_actions[guild.id][uid] = [
+                        (a, t) for a, t in self._abnormal_actions[guild.id][uid]
+                        if now - t < ABNORMAL_ACTION_WINDOW
+                    ]
+                    if len(self._abnormal_actions[guild.id][uid]) >= ABNORMAL_ACTION_THRESHOLD:
+                        await self._punish_abnormal(entry.user, guild, "banear usuarios rapidamente")
+                    break
         except discord.Forbidden:
             pass
+
+        try:
+            dm = create_embed("🔨 HAS SIDO BANEADO",
+                "Fuiste baneado de **" + guild.name + "**",
+                COLOR_RED,
+                [("📝 Razon", reason, False),
+                 ("👮 Moderador", str(moderator), True),
+                 ("🕐 Hora", "<t:" + str(int(datetime.utcnow().timestamp())) + ":F>", True),
+                 ("📋 ID del usuario", "`" + str(user.id) + "`", True)])
+            await user.send(embed=dm)
+        except discord.Forbidden:
+            pass
+
+        await self._alert_log(guild, "🔨 BAN EJECUTADO",
+            str(moderator) + " baneo a **" + str(user) + "**",
+            COLOR_RED,
+            [("👤 Usuario baneado", str(user) + "\n`" + str(user.id) + "`", True),
+             ("📝 Razon", reason, False),
+             ("👮 Moderador", str(moderator), True),
+             ("🕐 Hora", "<t:" + str(int(datetime.utcnow().timestamp())) + ":F>", True)])
+        await self._log(guild, "member_ban", user.id, details="Razon: " + reason + " | Por: " + str(moderator))
+
+    @commands.Cog.listener()
+    async def on_member_unban(self, guild, user):
+        moderator = "Desconocido"
+        try:
+            async for entry in guild.audit_logs(limit=5, action=discord.AuditLogAction.unban):
+                if entry.target.id == user.id:
+                    moderator = entry.user.mention
+                    break
+        except discord.Forbidden:
+            pass
+
+        try:
+            dm = create_embed("✅ DESBANEADO",
+                "Has sido desbaneado de **" + guild.name + "**",
+                COLOR_GREEN,
+                [("👮 Moderador", str(moderator), True),
+                 ("🕐 Hora", "<t:" + str(int(datetime.utcnow().timestamp())) + ":F>", True)])
+            await user.send(embed=dm)
+        except discord.Forbidden:
+            pass
+
+        await self._alert_log(guild, "✅ DESBAN EJECUTADO",
+            str(moderator) + " desbaneo a **" + str(user) + "**",
+            COLOR_GREEN,
+            [("👤 Usuario", str(user) + "\n`" + str(user.id) + "`", True),
+             ("👮 Moderador", str(moderator), True),
+             ("🕐 Hora", "<t:" + str(int(datetime.utcnow().timestamp())) + ":F>", True)])
+        await self._log(guild, "member_unban", user.id, details="Desbaneado por: " + str(moderator))
+
+    # ==========================================
+    #  MOTOR DE SEGURIDAD - ACCIONES ANORMALES
+    # ==========================================
+
+    async def _punish_abnormal(self, user, guild, action_desc):
+        """Expulsa a un usuario por acciones anormales"""
+        count = len(self._abnormal_actions[guild.id][user.id])
+        try:
+            dm = create_embed("👢 EXPULSADO - ACCIONES ANORMALES",
+                "Fuiste expulsado de **" + guild.name + "** por " + action_desc,
+                COLOR_RED,
+                [("📝 Razon", str(count) + " acciones en " + str(ABNORMAL_ACTION_WINDOW) + "s: " + action_desc, False),
+                 ("⏱️ Ventana", str(ABNORMAL_ACTION_WINDOW) + " segundos", True),
+                 ("🔢 Acciones", str(count) + "/" + str(ABNORMAL_ACTION_THRESHOLD), True),
+                 ("🕐 Hora", "<t:" + str(int(datetime.utcnow().timestamp())) + ":F>", True)])
+            await user.send(embed=dm)
+        except discord.Forbidden:
+            pass
+        try:
+            await user.kick(reason="Acciones anormales: " + action_desc + " (" + str(count) + " en " + str(ABNORMAL_ACTION_WINDOW) + "s)")
+        except discord.Forbidden:
+            pass
+
+        await self._alert_log(guild, "👢 KICK - ACCIONES ANORMALES",
+            user.mention + " fue expulsado por " + action_desc,
+            COLOR_RED,
+            [("👤 Usuario", user.mention + "\n`" + str(user.id) + "`", True),
+             ("📝 Razon", str(count) + " acciones en " + str(ABNORMAL_ACTION_WINDOW) + "s", False),
+             ("⏱️ Ventana", str(ABNORMAL_ACTION_WINDOW) + "s", True),
+             ("⚡ Accion", "KICK automatico", True),
+             ("🕐 Hora", "<t:" + str(int(datetime.utcnow().timestamp())) + ":F>", True)])
+        await self._log(guild, "abnormal_action_kick", user.id,
+                        details=str(count) + " acciones: " + action_desc)
+        self._abnormal_actions[guild.id][user.id] = []
 
     # ==========================================
     #  MOTOR DE SEGURIDAD
@@ -518,12 +989,16 @@ class Security(commands.Cog):
             self.raid_cooldown[gid] = now
 
             await self._alert_log(member.guild, "🚨 RAID DETECTADO",
-                str(len(self.join_times[gid])) + " usuarios se unieron en " + str(RAID_TIME_WINDOW) + " segundos",
-                COLOR_RED)
+                str(len(self.join_times[gid])) + " usuarios se unieron en " + str(window) + " segundos",
+                COLOR_RED,
+                [("👥 Usuarios", str(len(self.join_times[gid])), True),
+                 ("⏱️ Ventana", str(window) + "s", True),
+                 ("⚡ Accion", "Auto-ban de todos los involucrados", True),
+                 ("🕐 Hora", "<t:" + str(int(datetime.utcnow().timestamp())) + ":F>", True)])
 
             recent = [
                 m for m in member.guild.members
-                if m.joined_at and (datetime.utcnow() - m.joined_at).total_seconds() < RAID_TIME_WINDOW
+                if m.joined_at and (datetime.utcnow() - m.joined_at).total_seconds() < window
                 and not m.bot
             ]
             for m in recent:
@@ -531,7 +1006,8 @@ class Security(commands.Cog):
                     dm = create_embed("🚨 BAN POR RAID",
                         "Fuiste baneado de **" + member.guild.name + "** por ser parte de un raid.",
                         COLOR_RED,
-                        [("📝 Razon", "Raid: " + str(len(self.join_times[gid])) + " joins en " + str(RAID_TIME_WINDOW) + "s", False)])
+                        [("📝 Razon", "Raid: " + str(len(self.join_times[gid])) + " joins en " + str(window) + "s", False),
+                         ("🕐 Hora", "<t:" + str(int(datetime.utcnow().timestamp())) + ":F>", True)])
                     await m.send(embed=dm)
                 except discord.Forbidden:
                     pass
@@ -563,8 +1039,16 @@ class Security(commands.Cog):
                     "Fuiste silenciado en **" + message.guild.name + "** por spam.",
                     COLOR_BLUE,
                     [("📝 Razon", str(count) + " mensajes en " + str(SPAM_TIME_WINDOW) + "s", False),
-                     ("⏱️ Duracion", str(duration // 60) + " minutos", True)])
-                await self._log(message.guild, "spam_mute", uid, details=str(count) + " msgs")
+                     ("⏱️ Duracion", str(duration // 60) + " minutos", True),
+                     ("🕐 Hora", "<t:" + str(int(datetime.utcnow().timestamp())) + ":F>", True)])
+                await self._alert_log(message.guild, "🔇 SPAM MUTE",
+                    message.author.mention + " fue silenciado por spam",
+                    COLOR_BLUE,
+                    [("👤 Usuario", message.author.mention, True),
+                     ("🔢 Mensajes", str(count) + " en " + str(SPAM_TIME_WINDOW) + "s", True),
+                     ("⏱️ Duracion", str(duration // 60) + " min", True),
+                     ("📍 Canal", message.channel.mention, True)])
+                await self._log(message.guild, "spam_mute", uid, details=str(count) + " msgs en " + str(SPAM_TIME_WINDOW) + "s")
                 self.msg_times[uid] = []
                 return True
             except discord.Forbidden:
@@ -593,7 +1077,15 @@ class Security(commands.Cog):
                     COLOR_ORANGE,
                     [("📝 Mensajes rapidos", str(count) + " en " + str(FLOOD_TIME_WINDOW) + "s", False),
                      ("⚠️ Warns totales", str(warn_count), True),
-                     ("🔇 Duracion", str(MUTE_DEFAULT_DURATION // 60) + " min", True)])
+                     ("🔇 Duracion", str(MUTE_DEFAULT_DURATION // 60) + " min", True),
+                     ("🕐 Hora", "<t:" + str(int(datetime.utcnow().timestamp())) + ":F>", True)])
+                await self._alert_log(message.guild, "⚡ FLOOD MUTE",
+                    message.author.mention + " fue silenciado por flood",
+                    COLOR_ORANGE,
+                    [("👤 Usuario", message.author.mention, True),
+                     ("🔢 Mensajes rapidos", str(count) + " en " + str(FLOOD_TIME_WINDOW) + "s", True),
+                     ("⚠️ Warns", str(warn_count), True),
+                     ("📍 Canal", message.channel.mention, True)])
                 await self._log(message.guild, "flood_mute", uid, details=str(count) + " msgs en " + str(FLOOD_TIME_WINDOW) + "s")
                 self.flood_tracker[uid] = []
                 return True
@@ -617,7 +1109,15 @@ class Security(commands.Cog):
             [("📍 Canal", "#" + message.channel.name, True),
              ("📢 Menciones", str(count), True),
              ("⚠️ Warns", str(warn_count), True),
-             ("📝 Tu mensaje", message.content[:500], False)])
+             ("📝 Tu mensaje", message.content[:500], False),
+             ("🕐 Hora", "<t:" + str(int(datetime.utcnow().timestamp())) + ":F>", True)])
+        await self._alert_log(message.guild, "📢 MENCIONES BLOQUEADAS",
+            message.author.mention + " menciono a " + str(count) + " personas en " + message.channel.mention,
+            COLOR_RED,
+            [("👤 Usuario", message.author.mention, True),
+             ("📢 Menciones", str(count), True),
+             ("⚠️ Warns", str(warn_count), True),
+             ("📝 Mensaje", message.content[:300], False)])
         await self._log(message.guild, "mention_spam", message.author.id,
                         details=str(count) + " menciones en #" + message.channel.name)
         return True
@@ -646,7 +1146,15 @@ class Security(commands.Cog):
             [("📍 Canal", "#" + message.channel.name, True),
              ("🔗 Link", urls[0][:100], False),
              ("⚠️ Warns", str(warn_count) + "/5", True),
-             ("📝 Tu mensaje", message.content[:500], False)])
+             ("📝 Tu mensaje", message.content[:500], False),
+             ("🕐 Hora", "<t:" + str(int(datetime.utcnow().timestamp())) + ":F>", True)])
+        await self._alert_log(message.guild, "🔗 LINK ELIMINADO",
+            message.author.mention + " envio un link en " + message.channel.mention,
+            COLOR_YELLOW,
+            [("👤 Usuario", message.author.mention, True),
+             ("🔗 Link", urls[0][:100], False),
+             ("⚠️ Warns", str(warn_count), True),
+             ("📍 Canal", message.channel.mention, True)])
         await self._log(message.guild, "link_blocked", message.author.id, details=urls[0][:100])
         return True
 
@@ -666,14 +1174,22 @@ class Security(commands.Cog):
                     message.author.mention + " intento enviar un link de invitacion",
                     COLOR_RED,
                     [("🔗 Patron", pattern, True),
-                     ("⚠️ Warns", str(warn_count) + "/5", True)]), delete_after=10)
+                     ("⚠️ Warns", str(warn_count) + "/5", True),
+                     ("📍 Canal", message.channel.mention, True)]), delete_after=10)
                 await self._dm(message.author, "🔗 INVITE BLOQUEADO",
                     "Tu mensaje fue eliminado en **" + message.guild.name + "** por contener un link de invitacion.",
                     COLOR_RED,
                     [("📍 Canal", "#" + message.channel.name, True),
                      ("🔗 Patron", pattern, False),
                      ("⚠️ Warns", str(warn_count) + "/5", True),
-                     ("📝 Tu mensaje", message.content[:500], False)])
+                     ("📝 Tu mensaje", message.content[:500], False),
+                     ("🕐 Hora", "<t:" + str(int(datetime.utcnow().timestamp())) + ":F>", True)])
+                await self._alert_log(message.guild, "🔗 INVITE ELIMINADO",
+                    message.author.mention + " envio un link de invitacion en " + message.channel.mention,
+                    COLOR_RED,
+                    [("👤 Usuario", message.author.mention, True),
+                     ("🔗 Patron", pattern, False),
+                     ("📍 Canal", message.channel.mention, True)])
                 await self._log(message.guild, "invite_blocked", message.author.id, details="Patron: " + pattern)
                 return True
         return False
@@ -702,7 +1218,15 @@ class Security(commands.Cog):
                         "Fuiste baneado de **" + message.guild.name + "** por enviar un link de phishing.",
                         COLOR_RED,
                         [("🔗 Link malicioso", url[:100], False),
-                         ("📝 Tu mensaje", message.content[:500], False)])
+                         ("📝 Tu mensaje", message.content[:500], False),
+                         ("🕐 Hora", "<t:" + str(int(datetime.utcnow().timestamp())) + ":F>", True)])
+                    await self._alert_log(message.guild, "🎣 PHISHING BAN",
+                        message.author.mention + " baneado por phishing",
+                        COLOR_RED,
+                        [("👤 Usuario", message.author.mention + "\n`" + str(message.author.id) + "`", True),
+                         ("🔗 Link malicioso", url[:100], False),
+                         ("⚡ Accion", "Ban automatico", True),
+                         ("📍 Canal", message.channel.mention, True)])
                     await self._log(message.guild, "phishing_ban", message.author.id, details=url[:100])
                     return True
         return False
@@ -748,7 +1272,15 @@ class Security(commands.Cog):
         await self._dm(message.author, "🚫 CONTENIDO NSFW",
             "Fuiste baneado de **" + message.guild.name + "** por contenido NSFW.",
             COLOR_RED,
-            [("📝 Razon", reason, False)])
+            [("📝 Razon", reason, False),
+             ("🕐 Hora", "<t:" + str(int(datetime.utcnow().timestamp())) + ":F>", True)])
+        await self._alert_log(message.guild, "🚫 NSFW BAN",
+            message.author.mention + " baneado por contenido NSFW",
+            COLOR_RED,
+            [("👤 Usuario", message.author.mention + "\n`" + str(message.author.id) + "`", True),
+             ("📝 Razon", reason, False),
+             ("⚡ Accion", "Ban automatico", True),
+             ("📍 Canal", message.channel.mention, True)])
         await self._log(message.guild, "nsfw_ban", message.author.id, details=reason)
         return True
 
@@ -762,7 +1294,12 @@ class Security(commands.Cog):
                     await message.delete()
                     await self._alert_log(message.guild, "🔠 CAPS BLOQUEADOS",
                         message.author.mention + " - exceso de mayusculas en " + message.channel.mention,
-                        COLOR_YELLOW)
+                        COLOR_YELLOW,
+                        [("👤 Usuario", message.author.mention, True),
+                         ("📍 Canal", message.channel.mention, True),
+                         ("📝 Mensaje", content[:300], False)])
+                    await self._log(message.guild, "caps_blocked", message.author.id,
+                                    details="Caps: " + str(int((caps / len(content)) * 100)) + "%")
                     return
                 except discord.Forbidden:
                     pass
@@ -786,9 +1323,14 @@ class Security(commands.Cog):
                         await message.author.ban(reason="Palabra prohibida extrema: " + word)
                     except discord.Forbidden:
                         pass
-                    await self._alert_log(message.guild, "🔨 BAN INMEDIATO",
+                    await self._alert_log(message.guild, "🔨 BAN INMEDIATO - PALABRA EXTREMA",
                         message.author.mention + " baneado por palabra extrema: `" + word + "`",
-                        COLOR_RED)
+                        COLOR_RED,
+                        [("👤 Usuario", message.author.mention + "\n`" + str(message.author.id) + "`", True),
+                         ("📝 Palabra", "`" + word + "`", True),
+                         ("📍 Canal", message.channel.mention, True),
+                         ("⚡ Accion", "Ban inmediato", True),
+                         ("🕐 Hora", "<t:" + str(int(datetime.utcnow().timestamp())) + ":F>", True)])
                     await self._log(message.guild, "banned_word_ban", message.author.id, details="EXTREMO: " + word)
                     return
 
@@ -796,7 +1338,7 @@ class Security(commands.Cog):
                 await db.add_warn(message.guild.id, message.author.id, self.bot.user.id, "Palabra prohibida: " + word)
                 warn_count = await db.get_warn_count(message.guild.id, message.author.id)
 
-                # BAN por reincidencia (3 palabras prohibidas)
+                # BAN por reincidencia
                 if warn_count >= BAD_WORD_BAN_THRESHOLD:
                     try:
                         await self._dm(message.author, "🔨 BAN POR PALABRAS PROHIBIDAS",
@@ -808,9 +1350,13 @@ class Security(commands.Cog):
                         await message.author.ban(reason="Reincidencia: " + str(warn_count) + " palabras prohibidas")
                     except discord.Forbidden:
                         pass
-                    await self._alert_log(message.guild, "🔨 BAN POR REINCIDENCIA",
+                    await self._alert_log(message.guild, "🔨 BAN - REINCIDENCIA",
                         message.author.mention + " baneado por " + str(warn_count) + " palabras prohibidas",
-                        COLOR_RED)
+                        COLOR_RED,
+                        [("👤 Usuario", message.author.mention + "\n`" + str(message.author.id) + "`", True),
+                         ("🔢 Total", str(warn_count) + "/" + str(BAD_WORD_BAN_THRESHOLD), True),
+                         ("📍 Canal", message.channel.mention, True),
+                         ("⚡ Accion", "Ban automatico", True)])
                     await self._log(message.guild, "banned_word_ban", message.author.id,
                                     details="Reincidencia: " + str(warn_count) + " palabras")
                     return
@@ -822,6 +1368,13 @@ class Security(commands.Cog):
                      ("⚠️ Palabras prohibidas", str(warn_count) + "/" + str(BAD_WORD_BAN_THRESHOLD) + " (ban)", True),
                      ("Tu mensaje", content[:500], False),
                      ("⚠️ Siguiente", "Ban automatico si alcanzas " + str(BAD_WORD_BAN_THRESHOLD), False)])
+                await self._alert_log(message.guild, "🚫 PALABRA PROHIBIDA",
+                    message.author.mention + " uso una palabra prohibida en " + message.channel.mention,
+                    COLOR_YELLOW,
+                    [("👤 Usuario", message.author.mention, True),
+                     ("📝 Palabra", "`" + word + "`", True),
+                     ("⚠️ Warns", str(warn_count) + "/" + str(BAD_WORD_BAN_THRESHOLD), True),
+                     ("📍 Canal", message.channel.mention, True)])
                 await self._log(message.guild, "banned_word", message.author.id, details="Palabra: " + word)
                 return
 
@@ -830,7 +1383,11 @@ class Security(commands.Cog):
             try:
                 await message.delete()
                 await self._alert_log(message.guild, "😀 EMOJIS BLOQUEADOS",
-                    message.author.mention + " - exceso de emojis", COLOR_YELLOW)
+                    message.author.mention + " - exceso de emojis en " + message.channel.mention,
+                    COLOR_YELLOW,
+                    [("👤 Usuario", message.author.mention, True),
+                     ("📍 Canal", message.channel.mention, True)])
+                await self._log(message.guild, "emoji_spam", message.author.id, details="Exceso de emojis")
             except discord.Forbidden:
                 pass
 
@@ -850,18 +1407,23 @@ class Security(commands.Cog):
         except discord.Forbidden:
             pass
 
+        inviter_text = str(inviter) + " (fue expulsado)" if inviter and not inviter.bot else "N/A"
         await self._alert_log(guild, "🤖 BOT NO AUTORIZADO",
-            str(member) + " fue baneado (bot no autorizado)" +
-            ("\n" + str(inviter) + " fue expulsado por invitarlo" if inviter else ""),
-            COLOR_RED)
+            str(member) + " fue baneado (bot no autorizado)",
+            COLOR_RED,
+            [("🤖 Bot", str(member) + "\n`" + str(member.id) + "`", True),
+             ("👤 Invitado por", inviter_text, True),
+             ("⚡ Accion", "Ban del bot + kick del invitador", True),
+             ("🕐 Hora", "<t:" + str(int(datetime.utcnow().timestamp())) + ":F>", True)])
 
         if inviter and not inviter.bot:
             try:
                 await self._dm(inviter, "👢 EXPULSADO",
                     "Fuiste expulsado de **" + guild.name + "** por invitar un bot no autorizado.",
                     COLOR_RED,
-                    [("🤖 Bot baneado", str(member), True)])
-                await inviter.kick(reason="Invitó bot no autorizado")
+                    [("🤖 Bot baneado", str(member), True),
+                     ("🕐 Hora", "<t:" + str(int(datetime.utcnow().timestamp())) + ":F>", True)])
+                await inviter.kick(reason="Invito bot no autorizado")
             except (discord.Forbidden, Exception):
                 pass
 
@@ -942,14 +1504,15 @@ class Security(commands.Cog):
         except discord.Forbidden:
             pass
 
-    async def _alert_log(self, guild, title, description, color):
+    async def _alert_log(self, guild, title, description, color, fields=None):
+        """Envia un embed al canal de logs de seguridad"""
         settings = await db.get_settings(guild.id) or {}
         ch_id = settings.get("log_channel_id")
         if ch_id:
             ch = guild.get_channel(ch_id)
             if ch:
                 try:
-                    await ch.send(embed=create_embed(title, description, color))
+                    await ch.send(embed=create_embed(title, description, color, fields))
                 except discord.Forbidden:
                     pass
 

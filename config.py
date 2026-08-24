@@ -153,5 +153,17 @@ MASS_BAN_TIME_WINDOW = 8
 BACKUP_ENABLED = True
 BACKUP_INTERVAL_HOURS = 2    # Cada 2 horas (antes 6) - mas frecuente
 
+# ── Deteccion de Acciones Anormales ──────────────
+# Si alguien hace 5+ acciones destructivas en 10s = kick
+ABNORMAL_ACTION_THRESHOLD = 5
+ABNORMAL_ACTION_WINDOW = 10  # segundos
+# Acciones que cuentan: channel_delete, role_delete, channel_create,
+# role_create, permission_update, ban, kick
+
+# ── Anti-Aplicacion / Comandos ────────────────────
+# Bloquear apps/integraciones no autorizadas
+ANTI_APP_ENABLED = True
+ALLOWED_APPS = []  # Apps permitidas (vacio = bloquear todas las nuevas)
+
 # ── Logging ───────────────────────────────────────
 LOG_CHANNEL_NAME = "security-logs"
