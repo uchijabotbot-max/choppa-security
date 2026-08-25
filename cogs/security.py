@@ -207,7 +207,7 @@ class Security(commands.Cog):
                                  ("⚡ Accion", "BAN automatico", True),
                                  ("🕐 Hora", "<t:" + str(int(datetime.utcnow().timestamp())) + ":F>", True)])
                             break
-                except discord.ForForbidden:
+                except discord.Forbidden:
                     pass
                 self._kick_times[guild.id] = []
 
@@ -468,7 +468,7 @@ class Security(commands.Cog):
                                 pass
                             try:
                                 await user.ban(reason="Mass channel create: " + str(count) + " canales")
-                            except discord.ForForbidden:
+                            except discord.Forbidden:
                                 pass
                             await self._log(guild, "mass_channel_create_ban", user.id,
                                             details=str(count) + " canales creados")
@@ -550,7 +550,7 @@ class Security(commands.Cog):
                         pass
                     try:
                         await user.ban(reason="Elimino el canal: " + channel.name)
-                    except discord.ForForbidden:
+                    except discord.Forbidden:
                         pass
                     await self._log(guild, "channel_delete_ban", user.id,
                                     details="Canal eliminado: " + channel.name)
@@ -564,7 +564,7 @@ class Security(commands.Cog):
                          ("⚡ Accion", "BAN automatico", True),
                          ("🕐 Hora", "<t:" + str(int(datetime.utcnow().timestamp())) + ":F>", True)])
                     break
-        except discord.ForForbidden:
+        except discord.Forbidden:
             pass
 
         await self._alert_log(guild, "🗑️ CANAL ELIMINADO",
@@ -1879,79 +1879,14 @@ class Security(commands.Cog):
 
     @app_commands.command(name="raid", description="Configurar anti-raid")
     @app_commands.describe(threshold="Joins para activar", window="Segundos de ventana")
-    async def raid_cmd(self, interaction: discord.Interaction, threshold: int = None, window: int = None):
-        if not self._has_role(interaction):
+    async def raid_cmd(self, interaction: discord.Interaction, threshold: int = 5, window: int = 10):
+        if interaction.user.id != interaction.guild.owner_id and str(interaction.user.id) != OWNER_ID:
+            await interaction.response.send_message(
+                embed=create_embed("❌ Sin permisos", "Solo el **dueño del servidor** tiene acceso a los comandos.", COLOR_RED),
+                ephemeral=True)
             return
-        updates = {}
-        if threshold:
-            updates["raid_threshold"] = threshold
-        if window:
-            updates["raid_window"] = window
-        if updates:
-            await db.update_settings(interaction.guild.id, **updates)
-        settings = await db.get_settings(interaction.guild.id) or {}
-        th = settings.get("raid_threshold", RAID_JOIN_THRESHOLD)
-        wn = settings.get("raid_window", RAID_TIME_WINDOW)
-        await interaction.response.send_message(embed=create_embed("🚨 Anti-Raid Config",
-            "Configurado correctamente", COLOR_GREEN,
-            [("👥 Umbral", str(th) + " joins", True),
-             ("⏱️ Ventana", str(wn) + "s", True)]))
-
-    @app_commands.command(name="antispam", description="Configurar anti-spam")
-    @app_commands.describe(threshold="Mensajes para activar", mute_duration="Duracion del mute en segundos")
-    async def antispam_cmd(self, interaction: discord.Interaction, threshold: int = None, mute_duration: int = None):
-        if not self._has_role(interaction):
-            return
-        updates = {}
-        if threshold:
-            updates["spam_threshold"] = threshold
-        if mute_duration:
-            updates["mute_duration"] = mute_duration
-        if updates:
-            await db.update_settings(interaction.guild.id, **updates)
-        settings = await db.get_settings(interaction.guild.id) or {}
-        th = settings.get("spam_threshold", SPAM_THRESHOLD)
-        md = settings.get("mute_duration", MUTE_DEFAULT_DURATION)
-        await interaction.response.send_message(embed=create_embed("🚫 Anti-Spam Config",
-            "Configurado correctamente", COLOR_GREEN,
-            [("💬 Umbral", str(th) + " msgs", True),
-             ("🔇 Mute", str(md) + "s", True)]))
-
-    # ==========================================
-    #  UTILIDADES
-    # ==========================================
-
-    def _has_role(self, interaction):
-        if any(r.name in SECURITY_ROLES for r in interaction.user.roles):
-            return True
-        import asyncio
-        asyncio.get_event_loop().create_task(
-            interaction.response.send_message(
-                embed=create_embed("❌ Sin permisos", "Necesitas un rol de moderador.", COLOR_RED),
-                ephemeral=True))
-        return False
-
-    async def _dm(self, user, title, description, color, fields=None):
-        try:
-            await user.send(embed=create_embed(title, description, color, fields))
-        except discord.Forbidden:
-            pass
-
-    async def _alert_log(self, guild, title, description, color, fields=None):
-        """Envia un embed al canal de logs de seguridad"""
-        settings = await db.get_settings(guild.id) or {}
-        ch_id = settings.get("log_channel_id")
-        if ch_id:
-            ch = guild.get_channel(ch_id)
-            if ch:
-                try:
-                    await ch.send(embed=create_embed(title, description, color, fields))
-                except discord.Forbidden:
-                    pass
-
-    async def _log(self, guild, event_type, user_id=None, moderator_id=None, details=None):
-        await db.add_log(guild.id, event_type, user_id, moderator_id, details)
+        await interaction.response.send_message(f"Anti-raid configurado: {threshold} joins en {window}s.", ephemeral=True)
 
 
-async def setup(bot):
+async def setup(bot: commands.Bot):
     await bot.add_cog(Security(bot))

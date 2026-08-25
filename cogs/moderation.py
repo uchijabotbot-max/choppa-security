@@ -9,7 +9,7 @@ from datetime import timedelta
 
 from config import (
     SECURITY_ROLES, WARN_MUTE_THRESHOLD, WARN_KICK_THRESHOLD,
-    WARN_BAN_THRESHOLD, COLOR_RED, COLOR_YELLOW, COLOR_GREEN, COLOR_BLUE
+    WARN_BAN_THRESHOLD, COLOR_RED, COLOR_YELLOW, COLOR_GREEN, COLOR_BLUE, OWNER_ID
 )
 from utils.embeds import create_embed, user_banned, user_kicked, user_muted, user_warned
 from database import db
@@ -60,6 +60,7 @@ class Moderation(commands.Cog):
     @app_commands.command(name="warns", description="Ver advertencias de un usuario")
     @app_commands.describe(user="Usuario")
     async def warns_cmd(self, interaction: discord.Interaction, user: discord.Member):
+        if not self._check_role(interaction): return
         warns = await db.get_warns(interaction.guild.id, user.id)
         if not warns:
             return await interaction.response.send_message(
@@ -208,12 +209,14 @@ class Moderation(commands.Cog):
     # ═══════════════════════════════════════════
 
     def _check_role(self, interaction):
-        if any(r.name in SECURITY_ROLES for r in interaction.user.roles):
+        if not interaction.guild or not isinstance(interaction.user, discord.Member):
+            return False
+        if interaction.user.id == interaction.guild.owner_id or str(interaction.user.id) == str(OWNER_ID):
             return True
         import asyncio
         asyncio.get_event_loop().create_task(
             interaction.response.send_message(
-                embed=create_embed("❌ Sin permisos", "Necesitas un rol de moderador.", COLOR_RED),
+                embed=create_embed("❌ Sin permisos", "Solo el **dueño del servidor** tiene acceso a los comandos.", COLOR_RED),
                 ephemeral=True))
         return False
 

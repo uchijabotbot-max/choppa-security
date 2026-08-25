@@ -11,7 +11,7 @@ from datetime import datetime
 
 from config import (
     BACKUP_ENABLED, BACKUP_INTERVAL_HOURS, SECURITY_ROLES,
-    COLOR_RED, COLOR_GREEN, COLOR_BLUE, BOT_NAME, BOT_FOOTER
+    COLOR_RED, COLOR_GREEN, COLOR_BLUE, BOT_NAME, BOT_FOOTER, OWNER_ID
 )
 from utils.embeds import create_embed
 from database import db
@@ -170,12 +170,14 @@ class Backup(commands.Cog):
         return files
 
     def _check_role(self, interaction):
-        if any(r.name in SECURITY_ROLES for r in interaction.user.roles):
+        if not interaction.guild or not isinstance(interaction.user, discord.Member):
+            return False
+        if interaction.user.id == interaction.guild.owner_id or str(interaction.user.id) == str(OWNER_ID):
             return True
         import asyncio
         asyncio.get_event_loop().create_task(
             interaction.response.send_message(
-                embed=create_embed("❌ Sin permisos", "Necesitas un rol de moderador.", COLOR_RED),
+                embed=create_embed("❌ Sin permisos", "Solo el **dueño del servidor** tiene acceso a los comandos.", COLOR_RED),
                 ephemeral=True))
         return False
 

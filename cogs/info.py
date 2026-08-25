@@ -43,6 +43,7 @@ class Info(commands.Cog):
 
     @app_commands.command(name="serveraudit", description="Auditoría completa del servidor")
     async def serveraudit_cmd(self, interaction: discord.Interaction):
+        if not self._check_role(interaction): return
         await interaction.response.defer()
         guild = interaction.guild
 
@@ -246,6 +247,7 @@ class Info(commands.Cog):
 
     @app_commands.command(name="wl", description="Ver whitelist completa")
     async def wl_cmd(self, interaction: discord.Interaction):
+        if not self._check_role(interaction): return
         wl = await db.get_whitelist(interaction.guild.id)
         if not wl:
             return await interaction.response.send_message(embed=create_embed("✅ Whitelist",
@@ -361,12 +363,14 @@ class Info(commands.Cog):
     # ═══════════════════════════════════════════
 
     def _check_role(self, interaction):
-        if any(r.name in SECURITY_ROLES for r in interaction.user.roles):
+        if not interaction.guild or not isinstance(interaction.user, discord.Member):
+            return False
+        if interaction.user.id == interaction.guild.owner_id or str(interaction.user.id) == str(OWNER_ID):
             return True
         import asyncio
         asyncio.get_event_loop().create_task(
             interaction.response.send_message(
-                embed=create_embed("❌ Sin permisos", "Necesitas un rol de moderador.", COLOR_RED),
+                embed=create_embed("❌ Sin permisos", "Solo el **dueño del servidor** tiene acceso a los comandos.", COLOR_RED),
                 ephemeral=True))
         return False
 
